@@ -20,6 +20,10 @@ import android.content.res.Configuration
 import android.text.TextUtils
 import android.view.View
 import java.util.Locale
+import android.content.Context
+import android.content.ContextWrapper
+import android.content.res.AssetManager
+import android.content.res.Resources
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
@@ -47,7 +51,18 @@ class MainActivity : ComponentActivity() {
                 conf
             }
             val localizedContext = remember(configuration, currentContext) {
-                currentContext.createConfigurationContext(configuration)
+                val configurationContext = currentContext.createConfigurationContext(configuration)
+                object : ContextWrapper(currentContext) {
+                    override fun getResources(): Resources = configurationContext.resources
+                    override fun getAssets(): AssetManager = configurationContext.assets
+                    override fun getSystemService(name: String): Any? {
+                        return if (name == Context.LAYOUT_INFLATER_SERVICE) {
+                            configurationContext.getSystemService(name)
+                        } else {
+                            super.getSystemService(name)
+                        }
+                    }
+                }
             }
 
             val layoutDirection = remember(configuration) {
