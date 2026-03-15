@@ -4,7 +4,7 @@ All ship-blocking issues that will cause crashes, data loss, or security vulnera
 
 ---
 
-## 1. Missing `proguard-rules.pro` — Release Builds Will Fail
+## 1. ✅ FIXED — Missing `proguard-rules.pro` — Release Builds Will Fail
 
 **Module:** Build Configuration  
 **File:** `app/build.gradle.kts`  
@@ -36,7 +36,7 @@ buildTypes {
 
 ---
 
-## 2. Decoder Mode Logic Is Reversed
+## 2. ✅ FIXED — Decoder Mode Logic Is Reversed
 
 **Module:** Player  
 **File:** `player/src/main/java/com/streamvault/player/Media3PlayerEngine.kt` (lines 81–86)  
@@ -62,7 +62,7 @@ DecoderMode.SOFTWARE -> DefaultRenderersFactory.EXTENSION_RENDERER_MODE_OFF
 
 ---
 
-## 3. No MediaSession Integration — TV Remote Won't Work
+## 3. ✅ FIXED — No MediaSession Integration — TV Remote Won't Work
 
 **Module:** Player  
 **File:** `player/src/main/java/com/streamvault/player/Media3PlayerEngine.kt`  
@@ -88,7 +88,7 @@ mediaSession?.release()
 
 ---
 
-## 4. `pixelWidthHeightRatio` Stored as Frame Rate
+## 4. ✅ FIXED — `pixelWidthHeightRatio` Stored as Frame Rate
 
 **Module:** Player  
 **File:** `player/src/main/java/com/streamvault/player/Media3PlayerEngine.kt` (line 180)  
@@ -115,7 +115,7 @@ override fun onVideoInputFormatChanged(eventTime: EventTime, format: Format, ...
 
 ---
 
-## 5. EPG Staging Uses Negative Provider IDs — Data Corruption Risk
+## 5. ⚠️ MITIGATED — EPG Staging Uses Negative Provider IDs — Data Corruption Risk
 
 **Module:** Data  
 **File:** `data/src/main/java/com/streamvault/data/repository/EpgRepositoryImpl.kt` (lines 48–49)  
@@ -134,7 +134,7 @@ Using negative provider IDs as a staging mechanism creates a race condition: if 
 
 ---
 
-## 6. M3U Category ID Collision Across Providers
+## 6. ✅ FIXED — M3U Category ID Collision Across Providers
 
 **Module:** Data  
 **File:** `data/src/main/java/com/streamvault/data/sync/SyncManager.kt` (lines 419–430)  
@@ -155,7 +155,7 @@ Category IDs are allocated sequentially (1–9999 for LIVE, 10000+ for MOVIE) wi
 
 ---
 
-## 7. Database Migration 8→9 ID Remapping Can Corrupt References
+## 7. ⏭️ DEFERRED — Database Migration 8→9 ID Remapping Can Corrupt References
 
 **Module:** Data  
 **File:** `data/src/main/java/com/streamvault/data/local/StreamVaultDatabase.kt` (lines 180–290)  
@@ -177,7 +177,7 @@ If duplicate `(provider_id, stream_id)` pairs exist in source data (which M3U im
 
 ---
 
-## 8. ViewModels Never Cancel Background Jobs — Memory Leaks
+## 8. ✅ FIXED — ViewModels Never Cancel Background Jobs — Memory Leaks
 
 **Module:** App  
 **Files:** Multiple ViewModels  
@@ -226,7 +226,7 @@ override fun onCleared() {
 
 ---
 
-## 9. Credentials Can Leak Into Crash Logs
+## 9. ✅ FIXED — Credentials Can Leak Into Crash Logs
 
 **Module:** Data  
 **File:** `data/src/main/java/com/streamvault/data/sync/SyncManager.kt` (lines 738–753)  
@@ -249,7 +249,7 @@ Log.e(TAG, "Sync failed for provider $providerId: $safeMessage")
 
 ---
 
-## 10. No Signing Configuration for Release
+## 10. ✅ FIXED — No Signing Configuration for Release
 
 **Module:** Build  
 **File:** `app/build.gradle.kts`  
@@ -271,7 +271,7 @@ signingConfigs {
 
 ---
 
-## 11. ParentalControlManager Has Race Condition and No Persistence
+## 11. ✅ FIXED (race) / ⚠️ BY DESIGN (persistence) — ParentalControlManager Has Race Condition and No Persistence
 
 **Module:** Domain  
 **File:** `domain/src/main/java/com/streamvault/domain/manager/ParentalControlManager.kt` (lines 21–28)  
@@ -293,7 +293,7 @@ fun unlockCategory(providerId: Long, categoryId: Long) {
 
 ---
 
-## 12. No Foreign Key Constraints in Room Database
+## 12. ⏭️ DEFERRED — No Foreign Key Constraints in Room Database
 
 **Module:** Data  
 **File:** `data/src/main/java/com/streamvault/data/local/entity/Entities.kt`  
@@ -315,7 +315,7 @@ Room entities have no `@ForeignKey` annotations. Deleting a provider leaves behi
 
 ---
 
-## 13. XML Date Parsing Returns Epoch 0 Silently
+## 13. ✅ FIXED — XML Date Parsing Returns Epoch 0 Silently
 
 **Module:** Data  
 **File:** `data/src/main/java/com/streamvault/data/parser/XmltvParser.kt` (lines 184–200)  
@@ -336,7 +336,7 @@ Any XMLTV program with an unparseable date gets `startTime = 0`, placing it in t
 
 ---
 
-## 14. M3U Input Not Length-Bounded (DoS Vector)
+## 14. ✅ FIXED — M3U Input Not Length-Bounded (DoS Vector)
 
 **Module:** Data  
 **File:** `data/src/main/java/com/streamvault/data/parser/M3uParser.kt` (lines 299–330)  
@@ -351,7 +351,7 @@ Channel names, group titles, and other strings from M3U files have no maximum le
 
 ---
 
-## 15. `file://` URI Exposure
+## 15. ⚠️ FALSE POSITIVE — `file://` URI Exposure
 
 **Module:** App  
 **File:** `app/src/main/java/com/streamvault/app/ui/screens/provider/ProviderSetupScreen.kt` (line 91)  
@@ -367,7 +367,7 @@ Direct `file://` URIs are forbidden on Android 7+ (API 24) for cross-process sha
 
 ---
 
-## 16. No Error Recovery Strategy in Player
+## 16. ✅ FIXED — No Error Recovery Strategy in Player
 
 **Module:** Player  
 **File:** `player/src/main/java/com/streamvault/player/Media3PlayerEngine.kt` (lines 172–173)  

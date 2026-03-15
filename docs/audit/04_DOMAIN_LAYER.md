@@ -4,7 +4,7 @@ Architecture, models, use cases, and validation issues.
 
 ---
 
-## 1. Domain Model Contains UI Logic
+## 1. ✅ FIXED — Domain Model Contains UI Logic
 
 **File:** `domain/src/main/java/com/streamvault/domain/model/Program.kt` (lines 15–25)  
 **Severity:** 🟠 HIGH
@@ -25,7 +25,7 @@ This violates Clean Architecture — the domain model directly calls `System.cur
 
 ---
 
-## 2. Severely Under-Developed Use Case Layer
+## 2. ⏭️ DEFERRED — Severely Under-Developed Use Case Layer
 
 **File:** `domain/src/main/java/com/streamvault/domain/usecase/`  
 **Severity:** 🟠 HIGH
@@ -50,13 +50,13 @@ Only **1 use case** exists: `GetCustomCategories`. An IPTV app of this scope sho
 
 ---
 
-## 3. ParentalControlManager — Race Condition and No Persistence
+## 3. ✅ FIXED (race) / ⚠️ BY DESIGN (persistence) — ParentalControlManager — Race Condition and No Persistence
 
 > See [01_CRITICAL_BLOCKERS.md #11](01_CRITICAL_BLOCKERS.md#11-parentalcontrolmanager-has-race-condition-and-no-persistence)
 
 ---
 
-## 4. No Data Validation Across Domain Models
+## 4. ⏭️ DEFERRED — No Data Validation Across Domain Models
 
 **Severity:** 🟠 HIGH
 
@@ -112,7 +112,7 @@ val scheduledEndMs: Long            // Could be ≤ scheduledStartMs
 
 ---
 
-## 5. Repository API Design Issues
+## 5. ⏭️ DEFERRED — Repository API Design Issues
 
 ### 5a. FavoriteRepository — Ambiguous API
 
@@ -176,7 +176,7 @@ These can fail (database full, constraint violation) but the caller has no way t
 
 ---
 
-## 6. ChannelNormalizer Algorithm Flawed
+## 6. ✅ FIXED — ChannelNormalizer Algorithm Flawed
 
 **File:** `domain/src/main/java/com/streamvault/domain/util/ChannelNormalizer.kt` (lines 12–40)  
 **Severity:** 🟡 MEDIUM
@@ -190,7 +190,7 @@ The normalizer strips quality tags (HD, FHD, SD, 4K) to group "same" channels to
 
 ---
 
-## 7. Category Model Has Redundant Protection Fields
+## 7. ⏭️ DEFERRED — Category Model Has Redundant Protection Fields
 
 **File:** `domain/src/main/java/com/streamvault/domain/model/Category.kt`  
 **Severity:** 🟡 MEDIUM
@@ -206,7 +206,7 @@ Parental protection is tracked in two places: the `Category` model and the `Pare
 
 ---
 
-## 8. Missing Domain Features for Premium IPTV
+## 8. ⏭️ DEFERRED — Missing Domain Features for Premium IPTV
 
 **Severity:** 🟡 MEDIUM
 
@@ -224,7 +224,7 @@ No domain models or repository interfaces exist for:
 
 ---
 
-## 9. `GetCustomCategories` Swallows Exceptions
+## 9. ⏭️ REMAINING — `GetCustomCategories` Swallows Exceptions
 
 **File:** `domain/src/main/java/com/streamvault/domain/usecase/GetCustomCategories.kt`  
 **Severity:** 🟡 MEDIUM
@@ -239,7 +239,7 @@ If the categories query fails, the UI shows "no categories" with no error indica
 
 ---
 
-## 10. Provider Model Stores Credentials in Plain Data Class
+## 10. ✅ FIXED — Provider Model Stores Credentials in Plain Data Class
 
 **File:** `domain/src/main/java/com/streamvault/domain/model/Provider.kt`  
 **Severity:** 🟡 MEDIUM
@@ -259,7 +259,7 @@ While credentials are encrypted at the storage layer (`CredentialCrypto`), the d
 
 ---
 
-## 11. `StreamInfo` Model Exists but Underutilized
+## 11. ⏭️ DEFERRED — `StreamInfo` Model Exists but Underutilized
 
 **File:** `domain/src/main/java/com/streamvault/domain/model/StreamInfo.kt`  
 **Severity:** 🔵 LOW

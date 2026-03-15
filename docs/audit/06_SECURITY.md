@@ -10,19 +10,19 @@ StreamVault's security foundation is solid — credentials are encrypted with AE
 
 ---
 
-## 1. `file://` URI Exposure
+## 1. ⚠️ FALSE POSITIVE — `file://` URI Exposure
 
 > See [01_CRITICAL_BLOCKERS.md #15](01_CRITICAL_BLOCKERS.md#15-file-uri-exposure)
 
 ---
 
-## 2. Credentials Can Leak Into Crash Logs
+## 2. ✅ FIXED — Credentials Can Leak Into Crash Logs
 
 > See [01_CRITICAL_BLOCKERS.md #9](01_CRITICAL_BLOCKERS.md#9-credentials-can-leak-into-crash-logs)
 
 ---
 
-## 3. M3U URL Injection Vectors
+## 3. ✅ FIXED — M3U URL Injection Vectors
 
 **File:** `data/src/main/java/com/streamvault/data/parser/M3uParser.kt`  
 **Severity:** 🟠 HIGH
@@ -40,7 +40,7 @@ While `UrlSecurityPolicy.isAllowedImportedUrl()` exists, the following attack ve
 
 ---
 
-## 4. Provider Credentials in Domain Model `toString()`
+## 4. ✅ FIXED — Provider Credentials in Domain Model `toString()`
 
 **File:** `domain/src/main/java/com/streamvault/domain/model/Provider.kt`  
 **Severity:** 🟡 MEDIUM
@@ -62,13 +62,13 @@ override fun toString(): String = "Provider(id=$id, name=$name, type=$type)"
 
 ---
 
-## 5. M3U Input Not Length-Bounded
+## 5. ✅ FIXED — M3U Input Not Length-Bounded
 
 > See [01_CRITICAL_BLOCKERS.md #14](01_CRITICAL_BLOCKERS.md#14-m3u-input-not-length-bounded-dos-vector)
 
 ---
 
-## 6. No Certificate Pinning
+## 6. ⏭️ N/A — No Certificate Pinning
 
 **Severity:** 🟡 MEDIUM
 
@@ -78,7 +78,7 @@ No SSL/TLS certificate pinning is implemented for API communications. This is ty
 
 ---
 
-## 7. Backup File Not Encrypted
+## 7. ⏭️ DEFERRED — Backup File Not Encrypted
 
 **File:** `data/src/main/java/com/streamvault/data/manager/BackupManagerImpl.kt`  
 **Severity:** 🟡 MEDIUM
@@ -94,7 +94,7 @@ These are stored as plain JSON. If a user shares the backup file, their IPTV pro
 
 ---
 
-## 8. PIN Stored as Hash Without Iteration Count
+## 8. ⏭️ REMAINING — PIN Stored as Hash Without Iteration Count
 
 **File:** `data/src/main/java/com/streamvault/data/preferences/PreferencesRepository.kt`  
 **Severity:** 🔵 LOW

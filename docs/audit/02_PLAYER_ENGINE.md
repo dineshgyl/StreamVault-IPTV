@@ -4,13 +4,13 @@ All issues related to media playback, decoding, buffering, and streaming.
 
 ---
 
-## 1. Decoder Mode Logic Is Reversed
+## 1. ✅ FIXED — Decoder Mode Logic Is Reversed
 
 > See [01_CRITICAL_BLOCKERS.md #2](01_CRITICAL_BLOCKERS.md#2-decoder-mode-logic-is-reversed)
 
 ---
 
-## 2. Buffer Configuration Too Low for IPTV
+## 2. ✅ FIXED — Buffer Configuration Too Low for IPTV
 
 **File:** `player/src/main/java/com/streamvault/player/Media3PlayerEngine.kt` (lines 90–97)  
 **Severity:** 🟠 HIGH
@@ -37,25 +37,25 @@ val loadControl = DefaultLoadControl.Builder()
 
 ---
 
-## 3. No MediaSession Integration
+## 3. ✅ FIXED — No MediaSession Integration
 
 > See [01_CRITICAL_BLOCKERS.md #3](01_CRITICAL_BLOCKERS.md#3-no-mediasession-integration--tv-remote-wont-work)
 
 ---
 
-## 4. No Network Error Recovery
+## 4. ✅ FIXED — No Network Error Recovery
 
 > See [01_CRITICAL_BLOCKERS.md #16](01_CRITICAL_BLOCKERS.md#16-no-error-recovery-strategy-in-player)
 
 ---
 
-## 5. Video Format Frame Rate Is Wrong
+## 5. ✅ FIXED — Video Format Frame Rate Is Wrong
 
 > See [01_CRITICAL_BLOCKERS.md #4](01_CRITICAL_BLOCKERS.md#4-pixelwidthheightratio-stored-as-frame-rate)
 
 ---
 
-## 6. Error Classification Is Fragile (String Matching)
+## 6. ✅ FIXED — Error Classification Is Fragile (String Matching)
 
 **File:** `player/src/main/java/com/streamvault/player/PlayerEngine.kt` (lines 44–56)  
 **Severity:** 🟠 HIGH
@@ -97,7 +97,7 @@ fun fromException(e: Throwable): PlayerError = when (e) {
 
 ---
 
-## 7. No Explicit Network Timeout on Data Source
+## 7. ✅ FIXED — No Explicit Network Timeout on Data Source
 
 **File:** `player/src/main/java/com/streamvault/player/Media3PlayerEngine.kt` (lines 218–237)  
 **Severity:** 🟠 HIGH
@@ -114,7 +114,7 @@ OkHttpDataSource.Factory(okHttpClient)
 
 ---
 
-## 8. No Background/Foreground Lifecycle Handling
+## 8. ✅ FIXED — No Background/Foreground Lifecycle Handling
 
 **File:** `player/src/main/java/com/streamvault/player/Media3PlayerEngine.kt`  
 **Severity:** 🟠 HIGH
@@ -129,7 +129,7 @@ The player has no awareness of app lifecycle transitions. When the user presses 
 
 ---
 
-## 9. Track Selection Has Redundant API Calls
+## 9. ✅ FIXED — Track Selection Has Redundant API Calls
 
 **File:** `player/src/main/java/com/streamvault/player/Media3PlayerEngine.kt` (lines 347–413)  
 **Severity:** 🟡 MEDIUM
@@ -154,7 +154,7 @@ These should be combined into a single parameter update to avoid an intermediate
 
 ---
 
-## 10. Polling Redundant with Position Discontinuity Listener
+## 10. ⏭️ REMAINING — Polling Redundant with Position Discontinuity Listener
 
 **File:** `player/src/main/java/com/streamvault/player/Media3PlayerEngine.kt` (lines 427–437)  
 **Severity:** 🟡 MEDIUM
@@ -167,7 +167,7 @@ For multi-view (4 players), this means 4 × 2Hz = 8 position updates per second 
 
 ---
 
-## 11. No Bitrate / Quality Metrics for Diagnostics
+## 11. ⏭️ DEFERRED — No Bitrate / Quality Metrics for Diagnostics
 
 **File:** `player/src/main/java/com/streamvault/player/PlayerEngine.kt` (PlayerStats data class)  
 **Severity:** 🟡 MEDIUM
@@ -193,7 +193,7 @@ Missing for premium diagnostics:
 
 ---
 
-## 12. Stream Type Detection Incomplete
+## 12. ✅ FIXED — Stream Type Detection Incomplete
 
 **File:** `player/src/main/java/com/streamvault/player/StreamTypeDetector.kt` (lines 14–32)  
 **Severity:** 🟡 MEDIUM
@@ -208,7 +208,7 @@ The fallback `StreamType.UNKNOWN` delegates to ExoPlayer's content-type sniffing
 
 ---
 
-## 13. Audio Content Type Not Stream-Aware
+## 13. ⏭️ REMAINING — Audio Content Type Not Stream-Aware
 
 **File:** `player/src/main/java/com/streamvault/player/Media3PlayerEngine.kt` (lines 106–110)  
 **Severity:** 🔵 LOW
@@ -227,7 +227,7 @@ The fallback `StreamType.UNKNOWN` delegates to ExoPlayer's content-type sniffing
 
 ---
 
-## 14. No Chromecast / Cast Support
+## 14. ⏭️ DEFERRED — No Chromecast / Cast Support
 
 **Severity:** 🟡 MEDIUM (for premium release)
 
@@ -235,7 +235,7 @@ No Google Cast integration exists. Premium IPTV apps typically support casting f
 
 ---
 
-## 15. Decoder Reuse Evaluation Not Logged
+## 15. ⏭️ REMAINING — Decoder Reuse Evaluation Not Logged
 
 **File:** `player/src/main/java/com/streamvault/player/Media3PlayerEngine.kt` (lines 117–130)  
 **Severity:** 🔵 LOW
@@ -244,7 +244,7 @@ The `DecoderReuseEvaluation` parameter in `onVideoInputFormatChanged` is never i
 
 ---
 
-## 16. Coroutine Scope Cleanup Not Guaranteed
+## 16. ✅ FIXED — Coroutine Scope Cleanup Not Guaranteed
 
 **File:** `player/src/main/java/com/streamvault/player/Media3PlayerEngine.kt` (line 46)  
 **Severity:** 🔵 LOW

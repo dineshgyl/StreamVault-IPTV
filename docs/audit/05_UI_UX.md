@@ -4,7 +4,7 @@ Screens, navigation, accessibility, focus management, and presentation issues.
 
 ---
 
-## 1. D-Pad Focus Trap Scenarios
+## 1. ✅ FIXED — D-Pad Focus Trap Scenarios
 
 **Severity:** 🔴 CRITICAL
 
@@ -35,7 +35,7 @@ If the user navigates out of the 2×2 player grid, there's no safe path back in.
 
 ---
 
-## 2. Missing Error State UI on Content Screens
+## 2. ✅ FIXED — Missing Error State UI on Content Screens
 
 **Severity:** 🔴 CRITICAL
 
@@ -65,7 +65,7 @@ When query is under 2 characters, shows blank instead of a search hint or sugges
 
 ---
 
-## 3. Accessibility — Missing Content Descriptions
+## 3. ✅ FIXED — Accessibility — Missing Content Descriptions
 
 **Severity:** 🔴 CRITICAL
 
@@ -97,7 +97,7 @@ Control buttons lack descriptions. No announcement when playback state changes (
 
 ---
 
-## 4. RTL Layout Not Fully Mirrored
+## 4. ✅ N/A — RTL Layout Not Fully Mirrored
 
 **Severity:** 🟠 HIGH
 
@@ -123,13 +123,13 @@ Row header (title on left, "See All" on right) doesn't flip in RTL.
 
 ---
 
-## 5. ViewModel Memory Leaks — Jobs Not Cancelled
+## 5. ✅ FIXED — ViewModel Memory Leaks — Jobs Not Cancelled
 
 > See [01_CRITICAL_BLOCKERS.md #8](01_CRITICAL_BLOCKERS.md#8-viewmodels-never-cancel-background-jobs--memory-leaks)
 
 ---
 
-## 6. LazyRow/LazyColumn Missing Stable Keys
+## 6. ✅ FIXED — LazyRow/LazyColumn Missing Stable Keys
 
 **Severity:** 🟠 HIGH
 
@@ -163,7 +163,7 @@ No keys during reorder operations → full re-compose on every reorder step.
 
 ---
 
-## 7. Hardcoded English Strings in UI Code
+## 7. ✅ FIXED — Hardcoded English Strings in UI Code
 
 **Severity:** 🟠 HIGH
 
@@ -182,7 +182,7 @@ These strings are visible to users and will appear in English regardless of loca
 
 ---
 
-## 8. Player Error Recovery Not Visible to User
+## 8. ⏭️ REMAINING — Player Error Recovery Not Visible to User
 
 **Severity:** 🟠 HIGH
 
@@ -198,7 +198,7 @@ Users have no idea why their stream quality changed, why the channel switched, o
 
 ---
 
-## 9. DashboardScreen Missing States
+## 9. ✅ FIXED — DashboardScreen Missing States
 
 **Severity:** 🟡 MEDIUM
 
@@ -211,7 +211,7 @@ Users have no idea why their stream quality changed, why the channel switched, o
 
 ---
 
-## 10. String Concatenation Pattern Breaks RTL
+## 10. ✅ FIXED — String Concatenation Pattern Breaks RTL
 
 **Severity:** 🟡 MEDIUM
 
@@ -225,7 +225,7 @@ String concatenation doesn't respect RTL text direction. In Arabic, the number s
 
 ---
 
-## 11. HomeScreen Back Handler Missing
+## 11. ✅ FIXED — HomeScreen Back Handler Missing
 
 **Severity:** 🟡 MEDIUM
 
@@ -241,7 +241,7 @@ Currently relies on system default back behavior which may cause premature exit 
 
 ---
 
-## 12. Focus Restoration Uses `remember` Instead of `rememberSaveable`
+## 12. ✅ FIXED — Focus Restoration Uses `remember` Instead of `rememberSaveable`
 
 **Severity:** 🟡 MEDIUM
 
@@ -253,7 +253,7 @@ Using `remember` means focus state is lost on configuration changes (language ch
 
 ---
 
-## 13. No Responsive Layout for Sidebar Width
+## 13. ✅ FIXED — No Responsive Layout for Sidebar Width
 
 **Severity:** 🟡 MEDIUM
 
@@ -267,7 +267,7 @@ Hardcoded 280dp sidebar width. On large TV screens (65"+) this is too narrow; on
 
 ---
 
-## 14. No Animation on Category/Content Transitions
+## 14. ⏭️ DEFERRED — No Animation on Category/Content Transitions
 
 **Severity:** 🟡 MEDIUM
 
@@ -275,7 +275,7 @@ When selecting a category in HomeScreen, the channel grid content changes instan
 
 ---
 
-## 15. Missing Numeric Channel Switching in All Contexts
+## 15. ⏭️ REMAINING — Missing Numeric Channel Switching in All Contexts
 
 **Severity:** 🟡 MEDIUM
 
@@ -286,7 +286,7 @@ Quick channel switching via numeric pad (0-9) exists in the player but may not w
 
 ---
 
-## 16. No Loading Skeleton for Category Sidebar
+## 16. ✅ FIXED — No Loading Skeleton for Category Sidebar
 
 **Severity:** 🔵 LOW
 
@@ -294,7 +294,7 @@ Channel grid has skeleton loading, but the category sidebar shows nothing while 
 
 ---
 
-## 17. No Wrapping Navigation in Horizontal Lists
+## 17. ⏭️ REMAINING — No Wrapping Navigation in Horizontal Lists
 
 **Severity:** 🔵 LOW
 
@@ -302,7 +302,7 @@ When the user reaches the last item in a LazyRow and presses D-Pad right, nothin
 
 ---
 
-## 18. Search Needs Minimum Query Length Hint
+## 18. ⏭️ REMAINING — Search Needs Minimum Query Length Hint
 
 **Severity:** 🔵 LOW
 
@@ -314,7 +314,7 @@ When the user types a single character, show a hint: "Type at least 2 characters
 
 ---
 
-## 19. Multi-View Has No Slot Status Indicators
+## 19. ⏭️ REMAINING — Multi-View Has No Slot Status Indicators
 
 **Severity:** 🔵 LOW
 

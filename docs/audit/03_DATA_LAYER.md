@@ -4,49 +4,49 @@ Database, parsing, sync, data integrity, and repository implementation issues.
 
 ---
 
-## 1. EPG Date Parsing Silently Returns Epoch 0
+## 1. ✅ FIXED — EPG Date Parsing Silently Returns Epoch 0
 
 > See [01_CRITICAL_BLOCKERS.md #13](01_CRITICAL_BLOCKERS.md#13-xml-date-parsing-returns-epoch-0-silently)
 
 ---
 
-## 2. M3U Input Not Length-Bounded
+## 2. ✅ FIXED — M3U Input Not Length-Bounded
 
 > See [01_CRITICAL_BLOCKERS.md #14](01_CRITICAL_BLOCKERS.md#14-m3u-input-not-length-bounded-dos-vector)
 
 ---
 
-## 3. EPG Staging Uses Negative Provider IDs
+## 3. ⚠️ MITIGATED — EPG Staging Uses Negative Provider IDs
 
 > See [01_CRITICAL_BLOCKERS.md #5](01_CRITICAL_BLOCKERS.md#5-epg-staging-uses-negative-provider-ids--data-corruption-risk)
 
 ---
 
-## 4. Category ID Collision Across Providers
+## 4. ✅ FIXED — Category ID Collision Across Providers
 
 > See [01_CRITICAL_BLOCKERS.md #6](01_CRITICAL_BLOCKERS.md#6-m3u-category-id-collision-across-providers)
 
 ---
 
-## 5. Database Migration 8→9 Unsafe ID Remapping
+## 5. ⏭️ DEFERRED — Database Migration 8→9 Unsafe ID Remapping
 
 > See [01_CRITICAL_BLOCKERS.md #7](01_CRITICAL_BLOCKERS.md#7-database-migration-89-id-remapping-can-corrupt-references)
 
 ---
 
-## 6. Credentials Can Leak in Logs
+## 6. ✅ FIXED — Credentials Can Leak in Logs
 
 > See [01_CRITICAL_BLOCKERS.md #9](01_CRITICAL_BLOCKERS.md#9-credentials-can-leak-into-crash-logs)
 
 ---
 
-## 7. No Foreign Key Constraints
+## 7. ⏭️ DEFERRED — No Foreign Key Constraints
 
 > See [01_CRITICAL_BLOCKERS.md #12](01_CRITICAL_BLOCKERS.md#12-no-foreign-key-constraints-in-room-database)
 
 ---
 
-## 8. M3U URL Validation Insufficient
+## 8. ✅ FIXED — M3U URL Validation Insufficient
 
 **File:** `data/src/main/java/com/streamvault/data/parser/M3uParser.kt` (lines 312–320)  
 **File:** `data/src/main/java/com/streamvault/data/sync/SyncManager.kt` (lines 448–451)  
@@ -65,7 +65,7 @@ if (uri.scheme !in listOf("http", "https")) return null
 
 ---
 
-## 9. FTS Search Results Silently Truncated at 300
+## 9. ✅ FIXED — FTS Search Results Silently Truncated at 300
 
 **File:** `data/src/main/java/com/streamvault/data/local/dao/Daos.kt` (lines 83–100)  
 **Severity:** 🟠 HIGH
@@ -79,7 +79,7 @@ SELECT COUNT(*) FROM channels_fts WHERE channels_fts MATCH :query
 
 ---
 
-## 10. Large EPG Files Can Cause OOM
+## 10. ⚠️ MITIGATED — Large EPG Files Can Cause OOM
 
 **File:** `data/src/main/java/com/streamvault/data/sync/SyncManager.kt` (lines 561–576)  
 **Severity:** 🟠 HIGH
@@ -93,7 +93,7 @@ The EPG download uses a 64KB `GZIPInputStream` buffer, but for very large EPG fi
 
 ---
 
-## 11. PlaybackHistory Restore Uses N+1 Query Pattern
+## 11. ✅ FIXED — PlaybackHistory Restore Uses N+1 Query Pattern
 
 **File:** `data/src/main/java/com/streamvault/data/local/dao/Daos.kt` (lines 248–264)  
 **Severity:** 🟠 HIGH
@@ -113,7 +113,7 @@ The correlated subquery executes once per matched movie row. With 10,000+ movies
 
 ---
 
-## 12. RecordingManager Race Condition
+## 12. ✅ FIXED — RecordingManager Race Condition
 
 **File:** `data/src/main/java/com/streamvault/data/manager/RecordingManagerImpl.kt` (lines 50–52)  
 **Severity:** 🟠 HIGH
@@ -122,7 +122,7 @@ The `stateMutex` protects `itemsState` but `activeJobs` is accessed from multipl
 
 ---
 
-## 13. M3U Parser Unquoted Attribute Values
+## 13. ⏭️ REMAINING — M3U Parser Unquoted Attribute Values
 
 **File:** `data/src/main/java/com/streamvault/data/parser/M3uParser.kt` (lines 309–330)  
 **Severity:** 🟡 MEDIUM
@@ -136,7 +136,7 @@ The parser will extract only "My" as the group title because whitespace terminat
 
 ---
 
-## 14. Adult Content Classifier Is English-Only
+## 14. ✅ FIXED — Adult Content Classifier Is English-Only
 
 **File:** `data/src/main/java/com/streamvault/data/util/AdultContentClassifier.kt` (lines 6–19)  
 **Severity:** 🟡 MEDIUM
@@ -145,7 +145,7 @@ The classifier uses a hardcoded English keyword list. Content in Spanish, German
 
 ---
 
-## 15. XMLTV Date Format Support Limited
+## 15. ✅ FIXED — XMLTV Date Format Support Limited
 
 **File:** `data/src/main/java/com/streamvault/data/parser/XmltvParser.kt` (lines 39–43)  
 **Severity:** 🟡 MEDIUM
@@ -159,7 +159,7 @@ Missing formats cause programs to fall through to the epoch-0 fallback.
 
 ---
 
-## 16. Backup File Has No Integrity Check
+## 16. ✅ FIXED — Backup File Has No Integrity Check
 
 **File:** `data/src/main/java/com/streamvault/data/manager/BackupManagerImpl.kt` (lines 53–101)  
 **Severity:** 🟡 MEDIUM
@@ -170,7 +170,7 @@ Exported and imported backup files have no checksum, signature, or version valid
 
 ---
 
-## 17. SimpleDateFormat Thread Safety
+## 17. ✅ FIXED — SimpleDateFormat Thread Safety
 
 **File:** `data/src/main/java/com/streamvault/data/parser/XmltvParser.kt` (lines 39–43)  
 **Severity:** 🔵 LOW
@@ -185,7 +185,7 @@ private val dateFormats = listOf(
 
 ---
 
-## 18. No Pagination Metadata in Repositories
+## 18. ⏭️ DEFERRED — No Pagination Metadata in Repositories
 
 **File:** `data/src/main/java/com/streamvault/data/repository/MovieRepositoryImpl.kt` (lines 150–162)  
 **Severity:** 🟡 MEDIUM
@@ -194,7 +194,7 @@ Movie/Series pagination queries don't return the total count. The UI has no way 
 
 ---
 
-## 19. PIN Hashing - RNG Initialization
+## 19. ⏭️ REMAINING — PIN Hashing - RNG Initialization
 
 **File:** `data/src/main/java/com/streamvault/data/preferences/PreferencesRepository.kt` (lines 28–31)  
 **Severity:** 🔵 LOW
@@ -207,7 +207,7 @@ Creating a new `SecureRandom()` instance per call may use a weaker default provi
 
 ---
 
-## 20. Migration 2→3 Lacks Data Validation
+## 20. ⏭️ REMAINING — Migration 2→3 Lacks Data Validation
 
 **File:** `data/src/main/java/com/streamvault/data/local/StreamVaultDatabase.kt` (lines 47–57)  
 **Severity:** 🔵 LOW
@@ -216,7 +216,7 @@ ALTER TABLE migrations add columns but don't validate whether existing data sati
 
 ---
 
-## 21. Unused Extra Attributes in M3U Entries
+## 21. ⏭️ REMAINING — Unused Extra Attributes in M3U Entries
 
 **File:** `data/src/main/java/com/streamvault/data/parser/M3uParser.kt` (line 40)  
 **Severity:** 🔵 LOW
@@ -225,7 +225,7 @@ The parser captures unknown M3U attributes into an `extraAttributes` map that is
 
 ---
 
-## 22. Xtream Unknown Status Not Logged
+## 22. ⏭️ REMAINING — Xtream Unknown Status Not Logged
 
 **File:** `data/src/main/java/com/streamvault/data/remote/xtream/XtreamProvider.kt` (lines 82–90)  
 **Severity:** 🔵 LOW
