@@ -192,11 +192,12 @@ interface MovieDao {
             AND playback_history.content_type = 'MOVIE'
             AND playback_history.provider_id = :providerId
         )
-        WHERE id IN (
-            SELECT content_id FROM playback_history 
-            WHERE content_type = 'MOVIE' 
-            AND provider_id = :providerId
-        ) AND provider_id = :providerId
+        WHERE provider_id = :providerId AND EXISTS (
+            SELECT 1 FROM playback_history 
+            WHERE playback_history.content_id = movies.id
+            AND playback_history.content_type = 'MOVIE' 
+            AND playback_history.provider_id = :providerId
+        )
     """)
     suspend fun restoreWatchProgress(providerId: Long)
 
@@ -335,11 +336,12 @@ interface EpisodeDao {
             AND playback_history.content_type = 'SERIES_EPISODE'
             AND playback_history.provider_id = episodes.provider_id
         )
-        WHERE id IN (
-            SELECT content_id FROM playback_history 
-            WHERE content_type = 'SERIES_EPISODE' 
-            AND provider_id = episodes.provider_id
-        ) AND series_id = :seriesId
+        WHERE series_id = :seriesId AND EXISTS (
+            SELECT 1 FROM playback_history 
+            WHERE playback_history.content_id = episodes.id
+            AND playback_history.content_type = 'SERIES_EPISODE' 
+            AND playback_history.provider_id = episodes.provider_id
+        )
     """)
     suspend fun restoreWatchProgress(seriesId: Long)
 

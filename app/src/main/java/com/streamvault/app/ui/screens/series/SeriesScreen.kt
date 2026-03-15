@@ -511,7 +511,8 @@ fun SeriesScreen(
                                             { viewModel.selectCategory(uiState.favoriteCategoryName) }
                                         } else {
                                             null
-                                        }
+                                        },
+                                        keySelector = { it.id }
                                     ) { series ->
                                         val isLocked = (series.isAdult || series.isUserProtected) && uiState.parentalControlLevel == 1
                                         SeriesCard(
@@ -546,7 +547,8 @@ fun SeriesScreen(
                             CategoryRow(
                                 title = categoryName,
                                 items = seriesList,
-                                onSeeAll = { viewModel.selectCategory(categoryName) }
+                                onSeeAll = { viewModel.selectCategory(categoryName) },
+                                keySelector = { it.id }
                             ) { series ->
                                 val isLocked = (series.isAdult || series.isUserProtected) && uiState.parentalControlLevel == 1
                                 SeriesCard(
@@ -1050,7 +1052,8 @@ private fun SeriesVodContent(
                     CategoryRow(
                         title = "",
                         items = freshSeries,
-                        onSeeAll = null
+                        onSeeAll = null,
+                        keySelector = { it.id }
                     ) { series ->
                         val isLocked = (series.isAdult || series.isUserProtected) && uiState.parentalControlLevel == 1
                         SeriesCard(
@@ -1071,7 +1074,8 @@ private fun SeriesVodContent(
                     CategoryRow(
                         title = "",
                         items = topRatedSeries,
-                        onSeeAll = null
+                        onSeeAll = null,
+                        keySelector = { it.id }
                     ) { series ->
                         val isLocked = (series.isAdult || series.isUserProtected) && uiState.parentalControlLevel == 1
                         SeriesCard(
@@ -1097,7 +1101,8 @@ private fun SeriesVodContent(
                 CategoryRow(
                     title = "",
                     items = seriesList,
-                    onSeeAll = null
+                    onSeeAll = null,
+                    keySelector = { it.id }
                 ) { series ->
                     val isLocked = (series.isAdult || series.isUserProtected) && uiState.parentalControlLevel == 1
                     SeriesCard(

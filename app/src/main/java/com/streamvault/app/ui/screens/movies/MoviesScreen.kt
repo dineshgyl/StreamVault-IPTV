@@ -488,7 +488,8 @@ fun MoviesScreen(
                                             { viewModel.selectCategory(uiState.favoriteCategoryName) }
                                         } else {
                                             null
-                                        }
+                                        },
+                                        keySelector = { it.id }
                                     ) { movie ->
                                         val isLocked = (movie.isAdult || movie.isUserProtected) && uiState.parentalControlLevel == 1
                                         MovieCard(
@@ -531,7 +532,8 @@ fun MoviesScreen(
                             CategoryRow(
                                 title = categoryName,
                                 items = movies,
-                                onSeeAll = { viewModel.selectCategory(categoryName) }
+                                onSeeAll = { viewModel.selectCategory(categoryName) },
+                                keySelector = { it.id }
                             ) { movie ->
                                 val isLocked = (movie.isAdult || movie.isUserProtected) && uiState.parentalControlLevel == 1
                                 MovieCard(
@@ -1030,7 +1032,8 @@ private fun MoviesVodContent(
                     CategoryRow(
                         title = "",
                         items = freshMovies,
-                        onSeeAll = null
+                        onSeeAll = null,
+                        keySelector = { it.id }
                     ) { movie ->
                         val isLocked = (movie.isAdult || movie.isUserProtected) && uiState.parentalControlLevel == 1
                         MovieCard(
@@ -1051,7 +1054,8 @@ private fun MoviesVodContent(
                     CategoryRow(
                         title = "",
                         items = topRatedMovies,
-                        onSeeAll = null
+                        onSeeAll = null,
+                        keySelector = { it.id }
                     ) { movie ->
                         val isLocked = (movie.isAdult || movie.isUserProtected) && uiState.parentalControlLevel == 1
                         MovieCard(
@@ -1077,7 +1081,8 @@ private fun MoviesVodContent(
                 CategoryRow(
                     title = "",
                     items = movies,
-                    onSeeAll = null
+                    onSeeAll = null,
+                    keySelector = { it.id }
                 ) { movie ->
                     val isLocked = (movie.isAdult || movie.isUserProtected) && uiState.parentalControlLevel == 1
                     MovieCard(

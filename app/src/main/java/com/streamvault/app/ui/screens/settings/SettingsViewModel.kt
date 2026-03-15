@@ -1,7 +1,9 @@
 package com.streamvault.app.ui.screens.settings
 
+import android.app.Application
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.streamvault.app.R
 import com.streamvault.app.ui.model.LiveTvChannelMode
 import com.streamvault.data.preferences.PreferencesRepository
 import com.streamvault.data.sync.SyncManager
@@ -44,6 +46,7 @@ private data class SettingsPreferenceSnapshot(
 @HiltViewModel
 @OptIn(ExperimentalCoroutinesApi::class)
 class SettingsViewModel @Inject constructor(
+    application: Application,
     private val providerRepository: ProviderRepository,
     private val preferencesRepository: PreferencesRepository,
     private val backupManager: BackupManager,
@@ -52,6 +55,7 @@ class SettingsViewModel @Inject constructor(
     private val syncMetadataRepository: SyncMetadataRepository,
     private val playbackHistoryRepository: com.streamvault.domain.repository.PlaybackHistoryRepository
 ) : ViewModel() {
+    private val appContext = application
 
     private val _uiState = MutableStateFlow(SettingsUiState())
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
@@ -196,7 +200,7 @@ class SettingsViewModel @Inject constructor(
             _uiState.update { it.copy(isSyncing = true) }
             playbackHistoryRepository.clearAllHistory()
             preferencesRepository.clearAllRecentData()
-            _uiState.update { it.copy(isSyncing = false, userMessage = "Watch history and recents cleared") }
+            _uiState.update { it.copy(isSyncing = false, userMessage = appContext.getString(R.string.settings_history_cleared)) }
         }
     }
 
@@ -207,7 +211,7 @@ class SettingsViewModel @Inject constructor(
     fun changePin(newPin: String) {
         viewModelScope.launch {
             preferencesRepository.setParentalPin(newPin)
-            _uiState.update { it.copy(userMessage = "PIN changed successfully") }
+            _uiState.update { it.copy(userMessage = appContext.getString(R.string.settings_pin_changed)) }
         }
     }
 

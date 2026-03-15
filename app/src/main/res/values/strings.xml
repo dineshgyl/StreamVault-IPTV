@@ -817,4 +817,7 @@
     <string name="home_added_to_favorites">Added %1$s to Favorites</string>
     <string name="home_removed_from_favorites">Removed %1$s from Favorites</string>
     <string name="home_error_load_failed">Failed to load channels. Please check your connection and try again.</string>
+    <string name="settings_history_cleared">Watch history and recents cleared</string>
+    <string name="settings_pin_changed">PIN changed successfully</string>
+    <string name="home_reorder_channels">Reorder Channels</string>
 </resources>

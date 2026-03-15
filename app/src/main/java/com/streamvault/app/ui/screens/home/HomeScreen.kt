@@ -254,7 +254,7 @@ fun HomeScreen(
                     // Sidebar skeleton
                     Column(
                         modifier = Modifier
-                            .width(280.dp)
+                            .width(272.dp)
                             .fillMaxHeight()
                             .background(SurfaceElevated)
                             .padding(vertical = 16.dp, horizontal = 16.dp)
@@ -1129,7 +1129,7 @@ fun ReorderSidePanel(
     Box(
         modifier = Modifier
             .fillMaxHeight()
-            .width(280.dp)
+            .width(272.dp)
             .background(SurfaceElevated)
             .padding(16.dp)
             .focusRequester(panelFocusRequester)
@@ -1138,7 +1138,7 @@ fun ReorderSidePanel(
         Column(modifier = Modifier.fillMaxSize()) {
             // Header
             Text(
-                "Reorder Channels", 
+                stringResource(R.string.home_reorder_channels), 
                 style = MaterialTheme.typography.titleMedium, 
                 color = Primary,
                 modifier = Modifier.padding(bottom = 12.dp)
