@@ -111,12 +111,12 @@ fun LiveChannelRowCard(
                         horizontalArrangement = Arrangement.spacedBy(badgeSpacing),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        StatusPill(label = "LIVE", containerColor = AppColors.Live)
+                        StatusPill(label = stringResource(R.string.card_live_badge), containerColor = AppColors.Live)
                         if (channel.isFavorite) {
-                            StatusPill(label = "SAVED", containerColor = AppColors.Warning, contentColor = Color.Black)
+                            StatusPill(label = stringResource(R.string.badge_saved), containerColor = AppColors.Warning, contentColor = Color.Black)
                         }
                         if (channel.catchUpSupported) {
-                            StatusPill(label = "CATCH UP", containerColor = AppColors.Brand)
+                            StatusPill(label = stringResource(R.string.badge_catch_up), containerColor = AppColors.Brand)
                         }
                     }
                 }
@@ -223,7 +223,7 @@ fun LiveChannelRowSurface(
                     contentAlignment = Alignment.Center
                 ) {
                     StatusPill(
-                        label = "LOCKED",
+                        label = stringResource(R.string.home_locked_short),
                         containerColor = AppColors.SurfaceEmphasis,
                         contentColor = AppColors.TextPrimary
                     )
@@ -236,7 +236,7 @@ fun LiveChannelRowSurface(
                         .padding(12.dp)
                 ) {
                     StatusPill(
-                        label = "MOVING",
+                        label = stringResource(R.string.badge_moving),
                         containerColor = AppColors.Warning,
                         contentColor = Color.Black
                     )
@@ -293,7 +293,7 @@ fun EpisodeRowCard(episode: Episode, modifier: Modifier = Modifier) {
                     )
                 } else {
                     Text(
-                        text = "E${episode.episodeNumber}",
+                        text = stringResource(R.string.label_episode, episode.episodeNumber),
                         style = MaterialTheme.typography.titleMedium,
                         color = AppColors.TextSecondary
                     )

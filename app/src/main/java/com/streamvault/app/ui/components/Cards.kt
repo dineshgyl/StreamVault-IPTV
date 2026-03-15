@@ -217,13 +217,13 @@ fun ChannelCard(
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 if (channel.isFavorite) {
-                    StatusBadge(label = "FAV", containerColor = AccentAmber, contentColor = Color.Black)
+                    StatusBadge(label = stringResource(R.string.badge_fav), containerColor = AccentAmber, contentColor = Color.Black)
                 }
                 if (channel.errorCount > 0) {
-                    StatusBadge(label = "ERR", containerColor = AccentRed)
+                    StatusBadge(label = stringResource(R.string.badge_error), containerColor = AccentRed)
                 }
                 if (channel.catchUpSupported) {
-                    StatusBadge(label = "CATCH UP", containerColor = Primary)
+                    StatusBadge(label = stringResource(R.string.badge_catch_up), containerColor = Primary)
                 }
                 StatusBadge(
                     label = stringResource(R.string.card_live_badge),
@@ -234,7 +234,7 @@ fun ChannelCard(
 
         if (isLocked) {
             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                StatusBadge(label = "LOCKED", containerColor = SurfaceHighlight)
+                StatusBadge(label = stringResource(R.string.home_locked_short), containerColor = SurfaceHighlight)
             }
         }
     }
@@ -273,7 +273,7 @@ fun MovieCard(
                 contentAlignment = Alignment.Center
             ) {
                 StatusBadge(
-                    label = if (isLocked) "LOCKED" else "MOVIE",
+                    label = if (isLocked) stringResource(R.string.home_locked_short) else stringResource(R.string.badge_movie),
                     containerColor = SurfaceHighlight
                 )
             }
@@ -301,7 +301,7 @@ fun MovieCard(
                         .padding(horizontal = 6.dp, vertical = 2.dp)
                 ) {
                     Text(
-                        text = "RTG ${String.format("%.1f", movie.rating)}",
+                        text = stringResource(R.string.label_rating, String.format("%.1f", movie.rating)),
                         style = MaterialTheme.typography.labelSmall,
                         color = AccentAmber
                     )
@@ -310,7 +310,7 @@ fun MovieCard(
 
             if (movie.isFavorite) {
                 Box(modifier = Modifier.align(Alignment.TopEnd).padding(8.dp)) {
-                    StatusBadge(label = "FAV", containerColor = AccentRed)
+                    StatusBadge(label = stringResource(R.string.badge_fav), containerColor = AccentRed)
                 }
             }
         }
@@ -351,7 +351,7 @@ fun SeriesCard(
                 contentAlignment = Alignment.Center
             ) {
                 StatusBadge(
-                    label = if (isLocked) "LOCKED" else "SERIES",
+                    label = if (isLocked) stringResource(R.string.home_locked_short) else stringResource(R.string.badge_series),
                     containerColor = SurfaceHighlight
                 )
             }
@@ -379,7 +379,7 @@ fun SeriesCard(
                         .padding(horizontal = 6.dp, vertical = 2.dp)
                 ) {
                     Text(
-                        text = "RTG ${String.format("%.1f", series.rating)}",
+                        text = stringResource(R.string.label_rating, String.format("%.1f", series.rating)),
                         style = MaterialTheme.typography.labelSmall,
                         color = AccentAmber
                     )
@@ -388,7 +388,7 @@ fun SeriesCard(
 
             if (series.isFavorite) {
                 Box(modifier = Modifier.align(Alignment.TopEnd).padding(8.dp)) {
-                    StatusBadge(label = "FAV", containerColor = AccentRed)
+                    StatusBadge(label = stringResource(R.string.badge_fav), containerColor = AccentRed)
                 }
             }
         }

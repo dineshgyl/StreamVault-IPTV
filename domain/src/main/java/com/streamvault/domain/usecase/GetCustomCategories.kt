@@ -16,33 +16,29 @@ class GetCustomCategories @Inject constructor(
             favoriteRepository.getGlobalFavoriteCount(contentType),
             favoriteRepository.getGroupFavoriteCounts(contentType)
         ) { groups, globalCount, groupCounts ->
-            runCatching {
-                val categories = groups.map { group ->
-                    Category(
-                        id = -group.id, // Negative IDs reserve virtual groups.
-                        name = group.name,
-                        type = contentType,
-                        isVirtual = true,
-                        count = groupCounts.getOrDefault(group.id, 0)
-                    )
-                }.toMutableList()
-
-                // Prepend global "Favorites" virtual category.
-                categories.add(
-                    index = 0,
-                    element = Category(
-                        id = VirtualCategoryIds.FAVORITES,
-                        name = "Favorites",
-                        type = contentType,
-                        isVirtual = true,
-                        count = globalCount
-                    )
+            val categories = groups.map { group ->
+                Category(
+                    id = -group.id, // Negative IDs reserve virtual groups.
+                    name = group.name,
+                    type = contentType,
+                    isVirtual = true,
+                    count = groupCounts.getOrDefault(group.id, 0)
                 )
+            }.toMutableList()
 
-                categories
-            }.getOrElse {
-                emptyList()
-            }
+            // Prepend global "Favorites" virtual category.
+            categories.add(
+                index = 0,
+                element = Category(
+                    id = VirtualCategoryIds.FAVORITES,
+                    name = "Favorites",
+                    type = contentType,
+                    isVirtual = true,
+                    count = globalCount
+                )
+            )
+
+            categories
         }
     }
 }

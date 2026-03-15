@@ -48,7 +48,7 @@ import com.streamvault.app.ui.components.dialogs.PremiumDialogFooterButton
 fun VodSectionHeader(
     title: String,
     onSeeAll: (() -> Unit)? = null,
-    seeAllLabel: String = "See all"
+    seeAllLabel: String = stringResource(R.string.action_see_all)
 ) {
     Row(
         modifier = Modifier

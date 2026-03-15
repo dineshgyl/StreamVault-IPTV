@@ -577,7 +577,7 @@ private fun DestinationRail(
                 color = AppColors.TextPrimary
             )
             Text(
-                text = "TV",
+                text = stringResource(R.string.label_tv),
                 style = MaterialTheme.typography.labelSmall,
                 color = AppColors.TextTertiary
             )

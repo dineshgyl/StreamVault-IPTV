@@ -764,4 +764,13 @@
     <string name="label_rating">RTG %1$s</string>
     <string name="label_episode">E%1$d</string>
     <string name="label_duration_min">%1$d min</string>
+    <string name="label_tv">TV</string>
+    <string name="badge_saved">SAVED</string>
+    <string name="badge_catch_up">CATCH UP</string>
+    <string name="badge_moving">MOVING</string>
+    <string name="badge_fav">FAV</string>
+    <string name="badge_error">ERR</string>
+    <string name="badge_movie">MOVIE</string>
+    <string name="badge_series">SERIES</string>
+    <string name="action_see_all">See all</string>
 </resources>

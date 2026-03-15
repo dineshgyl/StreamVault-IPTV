@@ -967,7 +967,7 @@ fun EpgOverlay(
                             )
                             Spacer(Modifier.width(12.dp))
                             Text(
-                                text = "${currentProgram.durationMinutes} min",
+                                text = stringResource(R.string.label_duration_min, currentProgram.durationMinutes),
                                 style = MaterialTheme.typography.bodySmall,
                                 color = OnSurfaceDim
                             )
@@ -1088,7 +1088,7 @@ fun EpgOverlay(
                                     )
                                     Spacer(Modifier.width(8.dp))
                                     Text(
-                                        text = "${program.durationMinutes} min",
+                                        text = stringResource(R.string.label_duration_min, program.durationMinutes),
                                         style = MaterialTheme.typography.bodySmall,
                                         color = OnSurfaceDim
                                     )
