@@ -69,6 +69,7 @@ import com.streamvault.app.ui.screens.multiview.MultiViewViewModel
 import com.streamvault.app.ui.screens.multiview.MultiViewPlannerDialog
 import com.streamvault.app.navigation.Routes
 import com.streamvault.domain.model.VirtualCategoryIds
+import com.streamvault.domain.repository.ChannelRepository
 import androidx.compose.ui.viewinterop.AndroidView
 import com.streamvault.player.PlayerSurfaceResizeMode
 import java.text.SimpleDateFormat
@@ -276,6 +277,9 @@ fun HomeScreen(
                     viewModel.dismissCategoryOptions()
                 }
             },
+            onHide = if (!isCategoryLocked && !category.isVirtual && category.id != ChannelRepository.ALL_CHANNELS_ID) {
+                { viewModel.hideCategory(category) }
+            } else null,
             onRename = if (!isCategoryLocked && category.isVirtual && category.id !in setOf(VirtualCategoryIds.FAVORITES, VirtualCategoryIds.RECENT)) {
                 { viewModel.requestRenameGroup(category) }
             } else null,
@@ -622,10 +626,18 @@ fun HomeScreen(
                                         val preferredChannelId = lastFocusedChannelId
                                             ?.takeIf { channelId -> uiState.filteredChannels.any { it.id == channelId } }
                                             ?: uiState.filteredChannels.first().id
-                                        val focused = runCatching {
-                                            channelFocusRequesters[preferredChannelId]?.requestFocus()
-                                        }.isSuccess
-                                        if (!focused) runCatching { channelSearchFocusRequester.requestFocus() }
+                                        lastFocusedChannelId = preferredChannelId
+                                        preferredRestoreTarget = FocusRestoreTarget.CHANNEL.name
+                                        shouldRestoreChannelFocus = true
+                                        scope.launch {
+                                            kotlinx.coroutines.delay(60)
+                                            val focused = runCatching {
+                                                channelFocusRequesters[preferredChannelId]?.requestFocus()
+                                            }.getOrNull() != null
+                                            if (!focused) {
+                                                shouldRestoreChannelFocus = true
+                                            }
+                                        }
                                     } else {
                                         runCatching { channelSearchFocusRequester.requestFocus() }
                                     }

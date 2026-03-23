@@ -51,7 +51,7 @@ data class PlayerNavigationRequest(
 ) : Serializable
 
 object Routes {
-    const val PROVIDER_SETUP = "provider_setup?providerId={providerId}"
+    const val PROVIDER_SETUP = "provider_setup?providerId={providerId}&importUri={importUri}"
     const val HOME = "home"
     const val LIVE_TV = "live_tv"
     const val LIVE_TV_DESTINATION = "live_tv?categoryId={categoryId}"
@@ -71,7 +71,10 @@ object Routes {
     const val MULTI_VIEW = "multi_view"
 
 
-    fun providerSetup(providerId: Long? = null) = "provider_setup?providerId=${providerId ?: -1L}"
+    fun providerSetup(providerId: Long? = null, importUri: String? = null): String {
+        val encodedImportUri = Uri.encode(importUri ?: "")
+        return "provider_setup?providerId=${providerId ?: -1L}&importUri=$encodedImportUri"
+    }
     fun liveTv(categoryId: Long? = null) = if (categoryId == null) LIVE_TV else "$LIVE_TV?categoryId=$categoryId"
     fun epg(categoryId: Long? = null, anchorTime: Long? = null, favoritesOnly: Boolean? = null): String {
         val resolvedCategoryId = categoryId ?: -1L
@@ -200,6 +203,11 @@ fun AppNavigation(mainActivity: MainActivity) {
                 mainActivity.clearExternalNavigationRequest()
             }
 
+            is ExternalNavigationRequest.ImportM3u -> {
+                navController.navigate(Routes.providerSetup(importUri = request.uri)) { launchSingleTop = true }
+                mainActivity.clearExternalNavigationRequest()
+            }
+
             is ExternalNavigationRequest.Search -> {
                 navController.navigate(Routes.search(request.query)) { launchSingleTop = true }
                 mainActivity.clearExternalNavigationRequest()
@@ -245,13 +253,16 @@ fun AppNavigation(mainActivity: MainActivity) {
         composable(
             route = Routes.PROVIDER_SETUP,
             arguments = listOf(
-                navArgument("providerId") { type = NavType.LongType; defaultValue = -1L }
+                navArgument("providerId") { type = NavType.LongType; defaultValue = -1L },
+                navArgument("importUri") { type = NavType.StringType; defaultValue = "" }
             )
         ) { backStackEntry ->
             val providerId = backStackEntry.arguments?.getLong("providerId")?.takeIf { it != -1L }
+            val importUri = backStackEntry.arguments?.getString("importUri")?.takeIf { it.isNotBlank() }
             
             ProviderSetupScreen(
                 editProviderId = providerId,
+                initialImportUri = importUri,
                 onProviderAdded = dropUnlessResumed {
                     navController.navigate(Routes.HOME) {
                         popUpTo(Routes.PROVIDER_SETUP) { inclusive = true }

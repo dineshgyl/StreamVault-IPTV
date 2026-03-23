@@ -47,6 +47,8 @@ import com.streamvault.app.ui.design.AppColors.TextTertiary as OnSurfaceDim
 import androidx.compose.foundation.BorderStroke
 import com.streamvault.app.R
 import com.streamvault.app.ui.components.SearchInput
+import com.streamvault.app.ui.components.SelectionChip
+import com.streamvault.app.ui.components.SelectionChipRow
 import com.streamvault.app.ui.components.dialogs.PremiumDialog
 import com.streamvault.app.ui.components.dialogs.PremiumDialogFooterButton
 
@@ -171,7 +173,8 @@ data class VodActionChip(
 data class VodCategoryOption(
     val name: String,
     val count: Int,
-    val onClick: () -> Unit
+    val onClick: () -> Unit,
+    val onLongClick: (() -> Unit)? = null
 )
 
 @Composable
@@ -235,6 +238,12 @@ fun VodCategoryPickerDialog(
                                     category.onClick()
                                     onDismiss()
                                 },
+                                onLongClick = category.onLongClick?.let { action ->
+                                    {
+                                        action()
+                                        onDismiss()
+                                    }
+                                },
                                 shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(14.dp)),
                                 colors = ClickableSurfaceDefaults.colors(
                                     containerColor = SurfaceElevated,
@@ -274,6 +283,48 @@ fun VodCategoryPickerDialog(
                     }
                 }
             }
+        },
+        footer = {
+            PremiumDialogFooterButton(
+                label = stringResource(R.string.category_options_cancel),
+                onClick = onDismiss
+            )
+        }
+    )
+}
+
+@Composable
+fun VodBrowseOptionsDialog(
+    title: String,
+    filterTitle: String,
+    filterChips: List<SelectionChip>,
+    selectedFilterKey: String,
+    onFilterSelected: (String) -> Unit,
+    sortTitle: String,
+    sortChips: List<SelectionChip>,
+    selectedSortKey: String,
+    onSortSelected: (String) -> Unit,
+    onDismiss: () -> Unit
+) {
+    PremiumDialog(
+        title = title,
+        onDismissRequest = onDismiss,
+        widthFraction = 0.56f,
+        content = {
+            SelectionChipRow(
+                title = filterTitle,
+                chips = filterChips,
+                selectedKey = selectedFilterKey,
+                onChipSelected = onFilterSelected,
+                contentPadding = PaddingValues(horizontal = 0.dp)
+            )
+            SelectionChipRow(
+                title = sortTitle,
+                chips = sortChips,
+                selectedKey = selectedSortKey,
+                onChipSelected = onSortSelected,
+                contentPadding = PaddingValues(horizontal = 0.dp)
+            )
         },
         footer = {
             PremiumDialogFooterButton(

@@ -41,6 +41,9 @@ import com.streamvault.app.ui.components.shell.AppScreenScaffold
 import com.streamvault.app.ui.model.LiveTvChannelMode
 import com.streamvault.app.ui.theme.*
 import com.streamvault.domain.manager.BackupConflictStrategy
+import com.streamvault.domain.model.Category
+import com.streamvault.domain.model.CategorySortMode
+import com.streamvault.domain.model.ContentType
 import com.streamvault.domain.model.Provider
 import com.streamvault.domain.model.ProviderType
 import com.streamvault.domain.model.ProviderStatus
@@ -131,6 +134,8 @@ fun SettingsScreen(
     var showWifiQualityDialog by rememberSaveable { mutableStateOf(false) }
     var showEthernetQualityDialog by rememberSaveable { mutableStateOf(false) }
     var showClearHistoryDialog by rememberSaveable { mutableStateOf(false) }
+    var categorySortDialogType by rememberSaveable { mutableStateOf<String?>(null) }
+    var showHiddenCategoriesDialog by rememberSaveable { mutableStateOf(false) }
     var pinError by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingAction by remember { mutableStateOf<ParentalAction?>(null) }
     var pendingProtectionLevel by rememberSaveable { mutableStateOf<Int?>(null) }
@@ -303,6 +308,47 @@ fun SettingsScreen(
                     onManageProtectedGroups = {
                         uiState.activeProviderId?.let(onNavigateToParentalControl)
                     }
+                )
+            }
+
+            item {
+                Spacer(Modifier.height(16.dp))
+                SettingsSectionHeader(
+                    title = stringResource(R.string.settings_categories_title),
+                    subtitle = stringResource(R.string.settings_categories_subtitle)
+                )
+                ClickableSettingsRow(
+                    label = stringResource(R.string.settings_category_sort_live),
+                    value = formatCategorySortModeLabel(
+                        uiState.categorySortModes[ContentType.LIVE] ?: CategorySortMode.DEFAULT,
+                        context
+                    ),
+                    onClick = { categorySortDialogType = ContentType.LIVE.name }
+                )
+                ClickableSettingsRow(
+                    label = stringResource(R.string.settings_category_sort_movies),
+                    value = formatCategorySortModeLabel(
+                        uiState.categorySortModes[ContentType.MOVIE] ?: CategorySortMode.DEFAULT,
+                        context
+                    ),
+                    onClick = { categorySortDialogType = ContentType.MOVIE.name }
+                )
+                ClickableSettingsRow(
+                    label = stringResource(R.string.settings_category_sort_series),
+                    value = formatCategorySortModeLabel(
+                        uiState.categorySortModes[ContentType.SERIES] ?: CategorySortMode.DEFAULT,
+                        context
+                    ),
+                    onClick = { categorySortDialogType = ContentType.SERIES.name }
+                )
+                ClickableSettingsRow(
+                    label = stringResource(R.string.settings_hidden_categories_title),
+                    value = if (uiState.hiddenCategories.isEmpty()) {
+                        stringResource(R.string.settings_hidden_categories_none)
+                    } else {
+                        stringResource(R.string.settings_hidden_categories_count, uiState.hiddenCategories.size)
+                    },
+                    onClick = { showHiddenCategoriesDialog = true }
                 )
             }
 
@@ -785,6 +831,29 @@ fun SettingsScreen(
             )
         }
 
+        categorySortDialogType?.let { typeName ->
+            val type = ContentType.entries.firstOrNull { it.name == typeName }
+            if (type != null) {
+                CategorySortModeDialog(
+                    type = type,
+                    currentMode = uiState.categorySortModes[type] ?: CategorySortMode.DEFAULT,
+                    onDismiss = { categorySortDialogType = null },
+                    onModeSelected = { mode ->
+                        viewModel.setCategorySortMode(type, mode)
+                        categorySortDialogType = null
+                    }
+                )
+            }
+        }
+
+        if (showHiddenCategoriesDialog) {
+            HiddenCategoriesDialog(
+                hiddenCategories = uiState.hiddenCategories,
+                onDismiss = { showHiddenCategoriesDialog = false },
+                onUnhide = viewModel::unhideCategory
+            )
+        }
+
         if (showPinDialog) {
             PinDialog(
                 onDismissRequest = { 
@@ -1043,6 +1112,138 @@ private fun QualityCapSelectionDialog(
             )
         }
     }
+}
+
+@Composable
+private fun CategorySortModeDialog(
+    type: ContentType,
+    currentMode: CategorySortMode,
+    onDismiss: () -> Unit,
+    onModeSelected: (CategorySortMode) -> Unit
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    PremiumDialog(
+        title = categoryTypeLabel(type, context),
+        subtitle = categoryTypeDescription(type, context),
+        onDismissRequest = onDismiss,
+        widthFraction = 0.52f,
+        content = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                CategorySortMode.entries.forEach { mode ->
+                    Surface(
+                        onClick = { onModeSelected(mode) },
+                        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(14.dp)),
+                        colors = ClickableSurfaceDefaults.colors(
+                            containerColor = if (mode == currentMode) Primary.copy(alpha = 0.18f) else SurfaceElevated,
+                            focusedContainerColor = Primary.copy(alpha = 0.28f)
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text(
+                                text = formatCategorySortModeLabel(mode, context),
+                                style = MaterialTheme.typography.titleSmall,
+                                color = if (mode == currentMode) Primary else OnBackground
+                            )
+                            Text(
+                                text = sortModeLabel(mode, context),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = OnSurfaceDim
+                            )
+                        }
+                    }
+                }
+            }
+        },
+        footer = {
+            PremiumDialogFooterButton(
+                label = stringResource(R.string.settings_cancel),
+                onClick = onDismiss
+            )
+        }
+    )
+}
+
+@Composable
+private fun HiddenCategoriesDialog(
+    hiddenCategories: List<Category>,
+    onDismiss: () -> Unit,
+    onUnhide: (Category) -> Unit
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    PremiumDialog(
+        title = stringResource(R.string.settings_hidden_categories_title),
+        subtitle = stringResource(R.string.settings_hidden_categories_subtitle),
+        onDismissRequest = onDismiss,
+        widthFraction = 0.58f,
+        content = {
+            if (hiddenCategories.isEmpty()) {
+                Text(
+                    text = stringResource(R.string.settings_hidden_categories_empty),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = OnSurfaceDim
+                )
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 420.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    items(hiddenCategories, key = { "${it.type.name}:${it.id}" }) { category ->
+                        Surface(
+                            onClick = { onUnhide(category) },
+                            shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(14.dp)),
+                            colors = ClickableSurfaceDefaults.colors(
+                                containerColor = SurfaceElevated,
+                                focusedContainerColor = Primary.copy(alpha = 0.22f)
+                            ),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 14.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column(
+                                    modifier = Modifier.weight(1f),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Text(
+                                        text = category.name,
+                                        style = MaterialTheme.typography.titleSmall,
+                                        color = OnBackground
+                                    )
+                                    Text(
+                                        text = categoryTypeLabel(category.type, context),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = OnSurfaceDim
+                                    )
+                                }
+                                Text(
+                                    text = stringResource(R.string.settings_unhide_category),
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = Primary,
+                                    textAlign = TextAlign.End
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        footer = {
+            PremiumDialogFooterButton(
+                label = stringResource(R.string.action_done),
+                onClick = onDismiss
+            )
+        }
+    )
 }
 
 @Composable
@@ -2434,6 +2635,38 @@ private fun formatSpeedTestSummary(
         context.getString(R.string.settings_speed_test_summary_estimated, transportLabel, measuredAtLabel)
     } else {
         context.getString(R.string.settings_speed_test_summary_measured, transportLabel, measuredAtLabel)
+    }
+}
+
+private fun sortModeLabel(mode: CategorySortMode, context: android.content.Context): String {
+    return when (mode) {
+        CategorySortMode.DEFAULT -> context.getString(R.string.settings_category_sort_default)
+        CategorySortMode.TITLE_ASC -> context.getString(R.string.settings_category_sort_az)
+        CategorySortMode.TITLE_DESC -> context.getString(R.string.settings_category_sort_za)
+        CategorySortMode.COUNT_DESC -> context.getString(R.string.settings_category_sort_most_items)
+        CategorySortMode.COUNT_ASC -> context.getString(R.string.settings_category_sort_least_items)
+    }
+}
+
+private fun formatCategorySortModeLabel(mode: CategorySortMode, context: android.content.Context): String {
+    return sortModeLabel(mode, context)
+}
+
+private fun categoryTypeLabel(type: ContentType, context: android.content.Context): String {
+    return when (type) {
+        ContentType.LIVE -> context.getString(R.string.settings_category_sort_live)
+        ContentType.MOVIE -> context.getString(R.string.settings_category_sort_movies)
+        ContentType.SERIES -> context.getString(R.string.settings_category_sort_series)
+        ContentType.SERIES_EPISODE -> context.getString(R.string.settings_category_sort_series)
+    }
+}
+
+private fun categoryTypeDescription(type: ContentType, context: android.content.Context): String {
+    return when (type) {
+        ContentType.LIVE -> context.getString(R.string.settings_category_type_live_description)
+        ContentType.MOVIE -> context.getString(R.string.settings_category_type_movies_description)
+        ContentType.SERIES -> context.getString(R.string.settings_category_type_series_description)
+        ContentType.SERIES_EPISODE -> context.getString(R.string.settings_category_type_series_description)
     }
 }
 

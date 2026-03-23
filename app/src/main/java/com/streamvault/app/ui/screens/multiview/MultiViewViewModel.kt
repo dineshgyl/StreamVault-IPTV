@@ -129,14 +129,29 @@ class MultiViewViewModel @Inject constructor(
         observeReplacementCandidates()
     }
 
+    fun releasePlayersForBackground() {
+        cancelSlotStartupJobs()
+        cancelSlotErrorJobs()
+        playerEngines.values.forEach { engine ->
+            runCatching { engine.stop() }
+            runCatching { engine.setVolume(0f) }
+            runCatching { engine.release() }
+        }
+        playerEngines.clear()
+        _uiState.value = _uiState.value.copy(
+            slots = _uiState.value.slots.map { slot ->
+                if (slot.isEmpty) slot else slot.copy(isLoading = false, playerEngine = null)
+            }
+        )
+    }
+
     /** Called when MultiViewScreen is opened — spins up player engines for occupied slots */
     fun initSlots() {
         val initVersion = ++slotInitVersion
         telemetryJob?.cancel()
         cancelSlotStartupJobs()
         cancelSlotErrorJobs()
-        playerEngines.values.forEach { it.release() }
-        playerEngines.clear()
+        releasePlayersForBackground()
         lastDroppedFramesBySlot.clear()
         val channels = multiViewManager.slots.value
         val deviceActiveSlotLimit = runtimeActiveSlotLimit
@@ -411,11 +426,8 @@ class MultiViewViewModel @Inject constructor(
         super.onCleared()
         telemetryJob?.cancel()
         borderHideJob?.cancel()
-        cancelSlotStartupJobs()
-        cancelSlotErrorJobs()
         unregisterThermalListener()
-        playerEngines.values.forEach { it.release() }
-        playerEngines.clear()
+        releasePlayersForBackground()
     }
 
     private fun cancelSlotStartupJobs() {

@@ -4,11 +4,14 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.streamvault.app.di.AuxiliaryPlayerEngine
 import com.streamvault.app.tvinput.TvInputChannelSyncManager
+import com.streamvault.app.ui.model.applyProviderCategoryDisplayPreferences
+import com.streamvault.app.ui.model.guideLookupKey
 import com.streamvault.app.ui.model.LiveTvChannelMode
 import com.streamvault.data.preferences.PreferencesRepository
 import com.streamvault.data.sync.SyncManager
 import com.streamvault.domain.manager.ParentalControlManager
 import com.streamvault.domain.model.Category
+import com.streamvault.domain.model.CategorySortMode
 import com.streamvault.domain.model.Channel
 import com.streamvault.domain.model.ContentType
 import com.streamvault.domain.model.PlaybackHistory
@@ -119,7 +122,7 @@ class HomeViewModel @Inject constructor(
             }.collectLatest { (channels, favorites, epgProgramMap) ->
                 val favoriteIds = favorites.map { it.contentId }.toSet()
                 val markedChannels = channels.map { channel ->
-                    val program = channel.epgChannelId?.let { epgId -> epgProgramMap[epgId] }
+                    val program = channel.guideLookupKey()?.let { lookupKey -> epgProgramMap[lookupKey] }
                     if (favoriteIds.contains(channel.id)) {
                         channel.copy(isFavorite = true, currentProgram = program)
                     } else {
@@ -232,14 +235,35 @@ class HomeViewModel @Inject constructor(
                     channelRepository.getCategories(providerId),
                     getCustomCategories(),
                     preferencesRepository.defaultCategoryId,
-                    preferencesRepository.getLastLiveCategoryId(providerId)
-                ) { providerCats, customCats, defaultId, lastVisitedCategoryId ->
+                    preferencesRepository.getLastLiveCategoryId(providerId),
+                    preferencesRepository.getHiddenCategoryIds(providerId, ContentType.LIVE),
+                    preferencesRepository.getCategorySortMode(providerId, ContentType.LIVE)
+                ) { values ->
+                    val providerCats = values[0] as List<Category>
+                    val customCats = values[1] as List<Category>
+                    val defaultId = values[2] as Long?
+                    val lastVisitedCategoryId = values[3] as Long?
+                    val hiddenCategoryIds = values[4] as Set<Long>
+                    val sortMode = values[5] as CategorySortMode
                     val recentCategory = Category(
                         id = VirtualCategoryIds.RECENT,
                         name = "Recent",
                         type = ContentType.LIVE,
                         isVirtual = true,
                         count = _uiState.value.recentChannels.size
+                    )
+                    val allChannelsCategory = providerCats.firstOrNull { it.id == ChannelRepository.ALL_CHANNELS_ID }
+                        ?.copy(count = providerCats.filter { it.id != ChannelRepository.ALL_CHANNELS_ID && it.id !in hiddenCategoryIds }.sumOf(Category::count))
+                        ?: Category(
+                            id = ChannelRepository.ALL_CHANNELS_ID,
+                            name = "All Channels",
+                            type = ContentType.LIVE,
+                            count = providerCats.filter { it.id != ChannelRepository.ALL_CHANNELS_ID && it.id !in hiddenCategoryIds }.sumOf(Category::count)
+                        )
+                    val visibleProviderCategories = applyProviderCategoryDisplayPreferences(
+                        categories = providerCats.filter { it.id != ChannelRepository.ALL_CHANNELS_ID },
+                        hiddenCategoryIds = hiddenCategoryIds,
+                        sortMode = sortMode
                     )
 
                     val orderedCategories = buildList {
@@ -249,7 +273,8 @@ class HomeViewModel @Inject constructor(
                         }
                         add(recentCategory)
                         addAll(customCats.filter { it.id != VirtualCategoryIds.FAVORITES })
-                        addAll(providerCats)
+                        add(allChannelsCategory)
+                        addAll(visibleProviderCategories)
                     }
 
                     CategorySelectionContext(
@@ -408,7 +433,12 @@ class HomeViewModel @Inject constructor(
                     }
                 }
 
-                channelsFlow.collect { channels ->
+                combine(
+                    channelsFlow,
+                    preferencesRepository.getHiddenCategoryIds(providerId, ContentType.LIVE)
+                ) { channels, hiddenCategoryIds ->
+                    channels.filterNot { channel -> channel.categoryId in hiddenCategoryIds }
+                }.collect { channels ->
                     val numberedChannels = channels.mapIndexed { index, channel ->
                         channel.copy(number = index + 1)
                     }
@@ -544,11 +574,12 @@ class HomeViewModel @Inject constructor(
 
     private fun fetchEpgForChannels(providerId: Long, channels: List<Channel>) {
         epgJob?.cancel()
-        val epgIds = channels.mapNotNull { it.epgChannelId }.distinct()
+        val lookupKeys = channels.mapNotNull(Channel::guideLookupKey).distinct()
+        val xmltvKeys = channels.mapNotNull { it.epgChannelId?.trim()?.takeIf { value -> value.isNotEmpty() } }.distinct()
 
         epgJob = viewModelScope.launch {
-            val freshProgramMap = if (epgIds.isNotEmpty()) {
-                epgRepository.getNowPlayingForChannelsSnapshot(providerId, epgIds)
+            val freshProgramMap = if (xmltvKeys.isNotEmpty()) {
+                epgRepository.getNowPlayingForChannelsSnapshot(providerId, xmltvKeys)
                     .mapNotNull { (epgId, program) -> program?.let { epgId to it } }
                     .toMap()
             } else {
@@ -561,7 +592,7 @@ class HomeViewModel @Inject constructor(
             )
             val mergedProgramMap = freshProgramMap + fallbackProgramMap
 
-            val channelEpgIds = channels.mapNotNull { it.epgChannelId }.toSet()
+            val channelEpgIds = lookupKeys.toSet()
             _epgProgramMap.update { existing ->
                 buildMap {
                     putAll(existing)
@@ -587,9 +618,10 @@ class HomeViewModel @Inject constructor(
         }
 
         val missingChannels = channels.filter { channel ->
-            !channel.epgChannelId.isNullOrBlank() &&
+            val lookupKey = channel.guideLookupKey()
+            lookupKey != null &&
                 channel.streamId > 0L &&
-                !existingPrograms.containsKey(channel.epgChannelId)
+                !existingPrograms.containsKey(lookupKey)
         }
         if (missingChannels.isEmpty()) {
             return emptyMap()
@@ -610,8 +642,8 @@ class HomeViewModel @Inject constructor(
                         val programs = (result as? Result.Success)?.data.orEmpty()
                         val currentProgram = programs.firstOrNull { it.startTime <= now && it.endTime > now }
                             ?: programs.firstOrNull()
-                        val epgId = channel.epgChannelId ?: return@async null
-                        currentProgram?.let { epgId to it }
+                        val lookupKey = channel.guideLookupKey() ?: return@async null
+                        currentProgram?.let { lookupKey to it }
                     }
                 }
                 .awaitAll()
@@ -920,6 +952,30 @@ class HomeViewModel @Inject constructor(
 
     fun dismissCategoryOptions() {
         _uiState.update { it.copy(selectedCategoryForOptions = null) }
+    }
+
+    fun hideCategory(category: Category) {
+        if (category.isVirtual || category.id == ChannelRepository.ALL_CHANNELS_ID) return
+        val providerId = _uiState.value.provider?.id ?: return
+        viewModelScope.launch {
+            preferencesRepository.setCategoryHidden(
+                providerId = providerId,
+                type = ContentType.LIVE,
+                categoryId = category.id,
+                hidden = true
+            )
+            if (_uiState.value.selectedCategory?.id == category.id) {
+                val fallbackCategory = _uiState.value.categories.firstOrNull { it.id != category.id }
+                if (fallbackCategory != null) {
+                    selectCategory(fallbackCategory)
+                } else {
+                    dismissCategoryOptions()
+                }
+            } else {
+                dismissCategoryOptions()
+            }
+            _uiState.update { it.copy(userMessage = "Hidden category '${category.name}'") }
+        }
     }
 
     fun enterChannelReorderMode(category: Category) {

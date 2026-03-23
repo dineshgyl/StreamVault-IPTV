@@ -24,7 +24,6 @@ import com.streamvault.domain.model.Result
 import com.streamvault.domain.model.Result.Success
 import com.streamvault.domain.model.StreamInfo
 import com.streamvault.domain.repository.MovieRepository
-import com.streamvault.domain.util.isPlaybackComplete
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
@@ -242,7 +241,7 @@ class MovieRepositoryImpl @Inject constructor(
                     val inProgressIds = history
                         .asSequence()
                         .filter { it.contentType == ContentType.MOVIE }
-                        .filter { it.resumePositionMs > 0L && (it.totalDurationMs <= 0L || !isPlaybackComplete(it.resumePositionMs, it.totalDurationMs)) }
+                        .filter { it.resumePositionMs > 0L && (it.totalDurationMs <= 0L || !moviePlaybackComplete(it.resumePositionMs, it.totalDurationMs)) }
                         .map { it.contentId }
                         .toSet()
                     val watchCounts = history
@@ -292,8 +291,49 @@ class MovieRepositoryImpl @Inject constructor(
         movieDao.getById(movieId)?.toDomain()
 
     override suspend fun getMovieDetails(providerId: Long, movieId: Long): Result<Movie> {
-        val movie = movieDao.getById(movieId)?.toDomain()
-        return if (movie != null) Result.success(movie) else Result.error("Movie not found")
+        val movieEntity = movieDao.getById(movieId)
+            ?: return Result.error("Movie not found")
+
+        val provider = providerDao.getById(providerId)
+            ?: return Result.error("Provider not found")
+
+        if (provider.type != ProviderType.XTREAM_CODES) {
+            return Result.success(movieEntity.toDomain())
+        }
+
+        val xtreamProvider = try {
+            getOrCreateXtreamProvider(providerId, provider)
+        } catch (e: Exception) {
+            return Result.success(movieEntity.toDomain())
+        }
+
+        return when (val remoteResult = xtreamProvider.getVodInfo(movieEntity.streamId)) {
+            is Result.Success -> {
+                val remoteMovie = remoteResult.data
+                val updatedMovie = movieEntity.copy(
+                    name = remoteMovie.name.ifBlank { movieEntity.name },
+                    posterUrl = remoteMovie.posterUrl ?: movieEntity.posterUrl,
+                    backdropUrl = remoteMovie.backdropUrl ?: movieEntity.backdropUrl,
+                    categoryId = remoteMovie.categoryId ?: movieEntity.categoryId,
+                    categoryName = remoteMovie.categoryName ?: movieEntity.categoryName,
+                    plot = remoteMovie.plot ?: movieEntity.plot,
+                    cast = remoteMovie.cast ?: movieEntity.cast,
+                    director = remoteMovie.director ?: movieEntity.director,
+                    genre = remoteMovie.genre ?: movieEntity.genre,
+                    releaseDate = remoteMovie.releaseDate ?: movieEntity.releaseDate,
+                    duration = remoteMovie.duration ?: movieEntity.duration,
+                    durationSeconds = remoteMovie.durationSeconds.takeIf { it > 0 } ?: movieEntity.durationSeconds,
+                    rating = if (remoteMovie.rating > 0f) remoteMovie.rating else movieEntity.rating,
+                    year = remoteMovie.year ?: movieEntity.year,
+                    tmdbId = remoteMovie.tmdbId ?: movieEntity.tmdbId,
+                    youtubeTrailer = remoteMovie.youtubeTrailer ?: movieEntity.youtubeTrailer
+                )
+                movieDao.update(updatedMovie)
+                Result.success((movieDao.getById(movieEntity.id) ?: updatedMovie).toDomain())
+            }
+            is Result.Error -> Result.success(movieEntity.toDomain())
+            is Result.Loading -> Result.error("Unexpected loading state")
+        }
     }
 
     override suspend fun getStreamInfo(movie: Movie): Result<StreamInfo> = try {
@@ -524,7 +564,7 @@ class MovieRepositoryImpl @Inject constructor(
     private fun movieIsInProgress(movie: Movie): Boolean {
         if (movie.watchProgress <= 0L) return false
         val totalDurationMs = movie.durationSeconds.takeIf { it > 0 }?.times(1000L) ?: 0L
-        return !isPlaybackComplete(movie.watchProgress, totalDurationMs)
+        return !moviePlaybackComplete(movie.watchProgress, totalDurationMs)
     }
 
     private fun movieReleaseScore(movie: Movie): Long =
@@ -554,5 +594,10 @@ class MovieRepositoryImpl @Inject constructor(
                 )
             }
         }!!.provider
+    }
+
+    private fun moviePlaybackComplete(progressMs: Long, totalDurationMs: Long): Boolean {
+        if (progressMs <= 0L || totalDurationMs <= 0L) return false
+        return progressMs >= (totalDurationMs * 0.95f).toLong()
     }
 }

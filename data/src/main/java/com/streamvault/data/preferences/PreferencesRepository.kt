@@ -14,6 +14,8 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.streamvault.data.local.dao.ChannelPreferenceDao
 import com.streamvault.data.local.entity.ChannelPreferenceEntity
+import com.streamvault.domain.model.CategorySortMode
+import com.streamvault.domain.model.ContentType
 import com.streamvault.domain.manager.ParentalPinVerifier
 import com.streamvault.domain.manager.ParentalControlSessionState
 import com.streamvault.domain.manager.ParentalControlSessionStore
@@ -537,6 +539,59 @@ class PreferencesRepository @Inject constructor(
         }
     }
 
+    fun getHiddenCategoryIds(providerId: Long, type: ContentType): Flow<Set<Long>> {
+        val key = stringPreferencesKey(hiddenCategoriesKey(providerId, type))
+        return context.dataStore.data.map { preferences ->
+            preferences[key]
+                ?.split(',')
+                ?.mapNotNull { token -> token.toLongOrNull() }
+                ?.toSet()
+                .orEmpty()
+        }
+    }
+
+    suspend fun setCategoryHidden(
+        providerId: Long,
+        type: ContentType,
+        categoryId: Long,
+        hidden: Boolean
+    ) {
+        val key = stringPreferencesKey(hiddenCategoriesKey(providerId, type))
+        context.dataStore.edit { preferences ->
+            val current = preferences[key]
+                ?.split(',')
+                ?.mapNotNull { token -> token.toLongOrNull() }
+                ?.toMutableSet()
+                ?: mutableSetOf()
+            if (hidden) {
+                current += categoryId
+            } else {
+                current -= categoryId
+            }
+            if (current.isEmpty()) {
+                preferences.remove(key)
+            } else {
+                preferences[key] = current.sorted().joinToString(",")
+            }
+        }
+    }
+
+    fun getCategorySortMode(providerId: Long, type: ContentType): Flow<CategorySortMode> {
+        val key = stringPreferencesKey(categorySortModeKey(providerId, type))
+        return context.dataStore.data.map { preferences ->
+            preferences[key]
+                ?.let { saved -> CategorySortMode.entries.firstOrNull { it.name == saved } }
+                ?: CategorySortMode.DEFAULT
+        }
+    }
+
+    suspend fun setCategorySortMode(providerId: Long, type: ContentType, mode: CategorySortMode) {
+        val key = stringPreferencesKey(categorySortModeKey(providerId, type))
+        context.dataStore.edit { preferences ->
+            preferences[key] = mode.name
+        }
+    }
+
     fun getMultiViewPreset(presetIndex: Int): Flow<List<Long>> {
         val key = when (presetIndex) {
             0 -> PreferencesKeys.MULTIVIEW_PRESET_1
@@ -624,6 +679,12 @@ class PreferencesRepository @Inject constructor(
         val secret = SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(spec)
         return java.util.Base64.getEncoder().encodeToString(secret.encoded)
     }
+
+    private fun hiddenCategoriesKey(providerId: Long, type: ContentType): String =
+        "hidden_categories_${providerId}_${type.name}"
+
+    private fun categorySortModeKey(providerId: Long, type: ContentType): String =
+        "category_sort_${providerId}_${type.name}"
 
     private fun isPinLockedOut(nowMs: Long = System.currentTimeMillis()): Boolean {
         val lockoutUntilMs = parentalSessionPreferences.getLong(ParentalSessionKeys.PIN_LOCKOUT_UNTIL_MS, 0L)

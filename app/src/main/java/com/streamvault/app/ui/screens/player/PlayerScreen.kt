@@ -517,7 +517,9 @@ fun PlayerScreen(
                             true
                         }
                         KeyEvent.KEYCODE_MUTE, KeyEvent.KEYCODE_VOLUME_MUTE -> {
-                            viewModel.toggleMute()
+                            if (event.nativeKeyEvent.repeatCount == 0) {
+                                viewModel.toggleMute()
+                            }
                             true
                         }
                         KeyEvent.KEYCODE_CHANNEL_UP, KeyEvent.KEYCODE_DPAD_UP_RIGHT -> {
@@ -647,7 +649,7 @@ fun PlayerScreen(
         }
 
         AnimatedVisibility(
-            visible = playerNotice != null,
+            visible = playerNotice != null && !(playbackState == PlaybackState.BUFFERING && playerNotice?.isRetryNotice == false),
             enter = fadeIn(),
             exit = fadeOut(),
             modifier = Modifier

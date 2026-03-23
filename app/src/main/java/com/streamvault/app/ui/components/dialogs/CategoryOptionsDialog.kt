@@ -39,6 +39,7 @@ fun CategoryOptionsDialog(
     onDismissRequest: () -> Unit,
     onSetAsDefault: (() -> Unit)? = null,
     onRename: (() -> Unit)? = null,
+    onHide: (() -> Unit)? = null,
     onToggleLock: (() -> Unit)? = null,
     onDelete: (() -> Unit)? = null,
     onReorderChannels: (() -> Unit)? = null
@@ -95,6 +96,18 @@ fun CategoryOptionsDialog(
                     PremiumDialogAction(
                         label = stringResource(R.string.category_options_rename),
                         onClick = { if (canInteract) onRename() }
+                    )
+                }
+
+                if (onHide != null) {
+                    PremiumDialogAction(
+                        label = stringResource(R.string.category_options_hide),
+                        onClick = {
+                            if (canInteract) {
+                                onHide()
+                                onDismissRequest()
+                            }
+                        }
                     )
                 }
 

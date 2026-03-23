@@ -21,6 +21,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
@@ -39,6 +40,8 @@ import com.streamvault.app.R
 import com.streamvault.app.ui.design.requestFocusSafely
 import com.streamvault.app.ui.screens.player.PlayerNoticeAction
 import com.streamvault.app.ui.screens.player.PlayerNoticeState
+import com.streamvault.app.ui.screens.player.PlayerRecoveryType
+import com.streamvault.app.ui.theme.AccentAmber
 import com.streamvault.app.ui.theme.ErrorColor
 import com.streamvault.app.ui.theme.OnBackground
 import com.streamvault.app.ui.theme.OnSurface
@@ -62,16 +65,29 @@ fun PlayerNoticeBanner(
 ) {
     if (notice == null) return
 
-    Surface(
-        onClick = onDismiss,
+    val (containerColor, focusedContainerColor) = when {
+        notice.isRetryNotice || notice.recoveryType == PlayerRecoveryType.NETWORK || notice.recoveryType == PlayerRecoveryType.CATCH_UP ->
+            Color(0xCC17314E) to Color(0xFF214C78)
+        notice.recoveryType == PlayerRecoveryType.SOURCE ||
+            notice.recoveryType == PlayerRecoveryType.BUFFER_TIMEOUT ||
+            notice.recoveryType == PlayerRecoveryType.DECODER ->
+            Color(0xCC4A3314) to Color(0xFF6D4A19)
+        notice.recoveryType == PlayerRecoveryType.DRM ->
+            Color(0xCC5B1F1F) to Color(0xFFE45757)
+        else -> SurfaceElevated.copy(alpha = 0.96f) to SurfaceHighlight
+    }
+
+    Box(
         modifier = modifier,
-        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(12.dp)),
-        colors = ClickableSurfaceDefaults.colors(
-            containerColor = Color(0xCC5B1F1F),
-            focusedContainerColor = Color(0xFFE45757)
-        )
+        contentAlignment = Alignment.TopCenter
     ) {
-        Column(modifier = Modifier.padding(horizontal = 18.dp, vertical = 12.dp)) {
+        Column(
+            modifier = Modifier
+                .widthIn(max = 760.dp)
+                .clip(RoundedCornerShape(12.dp))
+                .background(containerColor)
+                .padding(horizontal = 18.dp, vertical = 12.dp)
+        ) {
             Text(
                 text = notice.message,
                 style = MaterialTheme.typography.bodyMedium,
@@ -86,7 +102,7 @@ fun PlayerNoticeBanner(
                             shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
                             colors = ClickableSurfaceDefaults.colors(
                                 containerColor = Color.White.copy(alpha = 0.12f),
-                                focusedContainerColor = Color.White.copy(alpha = 0.22f)
+                                focusedContainerColor = focusedContainerColor
                             )
                         ) {
                             Text(

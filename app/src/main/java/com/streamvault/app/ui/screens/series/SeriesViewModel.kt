@@ -2,14 +2,17 @@ package com.streamvault.app.ui.screens.series
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.streamvault.app.ui.model.applyProviderCategoryDisplayPreferences
 import com.streamvault.data.preferences.PreferencesRepository
 import com.streamvault.domain.model.Category
+import com.streamvault.domain.model.CategorySortMode
 import com.streamvault.domain.model.ContentType
 import com.streamvault.domain.model.LibraryFilterBy
 import com.streamvault.domain.model.LibraryFilterType
 import com.streamvault.domain.model.LibraryBrowseQuery
 import com.streamvault.domain.model.LibrarySortBy
 import com.streamvault.domain.model.PlaybackHistory
+import com.streamvault.domain.model.Result
 import com.streamvault.domain.model.Series
 import com.streamvault.domain.repository.FavoriteRepository
 import com.streamvault.domain.repository.PlaybackHistoryRepository
@@ -93,14 +96,29 @@ class SeriesViewModel @Inject constructor(
                         getCustomCategories(ContentType.SERIES),
                         seriesRepository.getCategories(provider.id),
                         seriesRepository.getCategoryItemCounts(provider.id),
-                        seriesRepository.getLibraryCount(provider.id)
-                    ) { allFavorites, customCategories, providerCategories, providerCategoryCounts, libraryCount ->
+                        seriesRepository.getLibraryCount(provider.id),
+                        preferencesRepository.getHiddenCategoryIds(provider.id, ContentType.SERIES),
+                        preferencesRepository.getCategorySortMode(provider.id, ContentType.SERIES)
+                    ) { values ->
+                        val allFavorites = values[0] as List<com.streamvault.domain.model.Favorite>
+                        val customCategories = values[1] as List<Category>
+                        val providerCategories = values[2] as List<Category>
+                        val providerCategoryCounts = values[3] as Map<Long, Int>
+                        val libraryCount = values[4] as Int
+                        val hiddenCategoryIds = values[5] as Set<Long>
+                        val sortMode = values[6] as CategorySortMode
                         SeriesCatalogDependencies(
                             allFavorites = allFavorites,
                             customCategories = customCategories,
-                            providerCategories = providerCategories,
+                            providerCategories = applyProviderCategoryDisplayPreferences(
+                                categories = providerCategories,
+                                hiddenCategoryIds = hiddenCategoryIds,
+                                sortMode = sortMode
+                            ),
                             providerCategoryCounts = providerCategoryCounts,
-                            libraryCount = libraryCount
+                            libraryCount = libraryCount,
+                            hiddenCategoryIds = hiddenCategoryIds,
+                            categorySortMode = sortMode
                         )
                     }.combine(_searchQuery) { dependencies, query ->
                         SeriesCatalogParams(
@@ -110,6 +128,8 @@ class SeriesViewModel @Inject constructor(
                             providerCategories = dependencies.providerCategories,
                             providerCategoryCounts = dependencies.providerCategoryCounts,
                             libraryCount = dependencies.libraryCount,
+                            hiddenCategoryIds = dependencies.hiddenCategoryIds,
+                            categorySortMode = dependencies.categorySortMode,
                             query = query.trim()
                         )
                     }
@@ -124,7 +144,9 @@ class SeriesViewModel @Inject constructor(
                                 buildSearchCatalog(
                                     series = searchResults,
                                     allFavorites = params.allFavorites,
-                                    customCategories = params.customCategories
+                                    customCategories = params.customCategories,
+                                    providerCategories = params.providerCategories,
+                                    hiddenCategoryIds = params.hiddenCategoryIds
                                 ).copy(libraryCount = searchResults.size)
                             }
                         )
@@ -132,12 +154,25 @@ class SeriesViewModel @Inject constructor(
                 }
                 .collect { snapshot ->
                     val isReordering = _uiState.value.isReorderMode
+                    val currentSelected = _uiState.value.selectedCategory
+                    val preserveSelectedCategory = currentSelected != null && _searchQuery.value.isNotBlank()
+                    val resolvedSelected = currentSelected?.takeIf { selected ->
+                        preserveSelectedCategory ||
+                            selected == _uiState.value.fullLibraryCategoryName ||
+                            selected in snapshot.categoryNames
+                    }
                     _uiState.update {
                         it.copy(
                             seriesByCategory = snapshot.grouped,
                             categoryNames = snapshot.categoryNames,
                             categoryCounts = snapshot.categoryCounts,
                             libraryCount = snapshot.libraryCount,
+                            providerCategories = snapshot.providerCategories,
+                            selectedCategory = resolvedSelected,
+                            selectedCategoryItems = if (resolvedSelected == null) emptyList() else it.selectedCategoryItems,
+                            selectedCategoryLoadedCount = if (resolvedSelected == null) 0 else it.selectedCategoryLoadedCount,
+                            selectedCategoryTotalCount = if (resolvedSelected == null) 0 else it.selectedCategoryTotalCount,
+                            canLoadMoreSelectedCategory = if (resolvedSelected == null) false else it.canLoadMoreSelectedCategory,
                             filteredSeries = if (isReordering) it.filteredSeries else emptyList(),
                             isLoading = false,
                             errorMessage = null
@@ -158,14 +193,28 @@ class SeriesViewModel @Inject constructor(
                         getCustomCategories(ContentType.SERIES),
                         seriesRepository.getCategories(provider.id),
                         seriesRepository.getCategoryItemCounts(provider.id),
-                        playbackHistoryRepository.getRecentlyWatchedByProvider(provider.id, limit = 2_000)
-                    ) { allFavorites, customCategories, providerCategories, providerCategoryCounts, history ->
+                        playbackHistoryRepository.getRecentlyWatchedByProvider(provider.id, limit = 2_000),
+                        preferencesRepository.getHiddenCategoryIds(provider.id, ContentType.SERIES),
+                        preferencesRepository.getCategorySortMode(provider.id, ContentType.SERIES)
+                    ) { values ->
+                        val allFavorites = values[0] as List<com.streamvault.domain.model.Favorite>
+                        val customCategories = values[1] as List<Category>
+                        val providerCategories = values[2] as List<Category>
+                        val providerCategoryCounts = values[3] as Map<Long, Int>
+                        val history = values[4] as List<PlaybackHistory>
+                        val hiddenCategoryIds = values[5] as Set<Long>
+                        val sortMode = values[6] as CategorySortMode
                         SeriesCategorySelectionDependencies(
                             allFavorites = allFavorites,
                             customCategories = customCategories,
-                            providerCategories = providerCategories,
+                            providerCategories = applyProviderCategoryDisplayPreferences(
+                                categories = providerCategories,
+                                hiddenCategoryIds = hiddenCategoryIds,
+                                sortMode = sortMode
+                            ),
                             providerCategoryCounts = providerCategoryCounts,
-                            history = history
+                            history = history,
+                            hiddenCategoryIds = hiddenCategoryIds
                         )
                     }.combine(
                         combine(
@@ -195,7 +244,8 @@ class SeriesViewModel @Inject constructor(
                             history = dependencies.history,
                             customCategories = dependencies.customCategories,
                             providerCategories = dependencies.providerCategories,
-                            providerCategoryCounts = dependencies.providerCategoryCounts
+                            providerCategoryCounts = dependencies.providerCategoryCounts,
+                            hiddenCategoryIds = dependencies.hiddenCategoryIds
                         )
                     }
                 }
@@ -482,13 +532,42 @@ class SeriesViewModel @Inject constructor(
         }
 
         viewModelScope.launch {
-            createVodGroup(normalizedName, ContentType.SERIES, favoriteRepository)
-            _uiState.update { it.copy(userMessage = "Created group $normalizedName") }
+            when (val result = createVodGroup(normalizedName, ContentType.SERIES, favoriteRepository)) {
+                is Result.Success -> {
+                    val selectedSeries = _uiState.value.selectedSeriesForDialog
+                    val memberships = if (selectedSeries != null) {
+                        updateVodGroupMembership(
+                            itemId = selectedSeries.id,
+                            groupId = result.data.id,
+                            contentType = ContentType.SERIES,
+                            shouldBeMember = true,
+                            favoriteRepository = favoriteRepository
+                        )
+                    } else {
+                        _uiState.value.dialogGroupMemberships
+                    }
+                    _uiState.update {
+                        it.copy(
+                            dialogGroupMemberships = memberships,
+                            userMessage = if (selectedSeries != null) {
+                                "Created group $normalizedName and added ${selectedSeries.name}"
+                            } else {
+                                "Created group $normalizedName"
+                            }
+                        )
+                    }
+                }
+                is Result.Error -> {
+                    _uiState.update { it.copy(userMessage = result.message) }
+                }
+                Result.Loading -> Unit
+            }
         }
     }
 
     fun showCategoryOptions(categoryName: String) {
         val matchedCategory = _uiState.value.categories.find { it.name == categoryName }
+            ?: _uiState.value.providerCategories.find { it.name == categoryName }
             ?: if (categoryName == VodBrowseDefaults.FAVORITES_CATEGORY) {
                 Category(
                     id = VodBrowseDefaults.FAVORITES_SENTINEL_ID,
@@ -507,6 +586,25 @@ class SeriesViewModel @Inject constructor(
 
     fun dismissCategoryOptions() {
         _uiState.update { it.copy(selectedCategoryForOptions = null) }
+    }
+
+    fun hideCategory(category: Category) {
+        if (category.isVirtual) return
+        viewModelScope.launch {
+            val providerId = providerRepository.getActiveProvider().first()?.id ?: return@launch
+            preferencesRepository.setCategoryHidden(
+                providerId = providerId,
+                type = ContentType.SERIES,
+                categoryId = category.id,
+                hidden = true
+            )
+            if (_uiState.value.selectedCategory == category.name) {
+                selectCategory(null)
+            } else {
+                dismissCategoryOptions()
+            }
+            _uiState.update { it.copy(userMessage = "Hidden category ${category.name}") }
+        }
     }
 
     fun requestRenameGroup(category: Category) {
@@ -665,31 +763,39 @@ class SeriesViewModel @Inject constructor(
             providerCategories = params.providerCategories,
             providerCategoryCounts = params.providerCategoryCounts,
             libraryCount = params.libraryCount,
+            hiddenProviderCategoryIds = params.hiddenCategoryIds,
             loadItemsByIds = { ids -> seriesRepository.getSeriesByIds(ids).first() },
             loadCategoryPreviewRows = { providerId, limit ->
                 seriesRepository.getCategoryPreviewRows(providerId, limit).first()
             },
             itemId = Series::id,
+            itemCategoryId = Series::categoryId,
             copyWithFavorite = { series, isFavorite -> series.copy(isFavorite = isFavorite) }
         )
         return SeriesCatalogSnapshot(
             grouped = snapshot.grouped,
             categoryNames = snapshot.categoryNames,
             categoryCounts = snapshot.categoryCounts,
-            libraryCount = snapshot.libraryCount
+            libraryCount = snapshot.libraryCount,
+            providerCategories = params.providerCategories
         )
     }
 
     private fun buildSearchCatalog(
         series: List<Series>,
         allFavorites: List<com.streamvault.domain.model.Favorite>,
-        customCategories: List<Category>
+        customCategories: List<Category>,
+        providerCategories: List<Category>,
+        hiddenCategoryIds: Set<Long>
     ): SeriesCatalogSnapshot {
         val snapshot = buildVodSearchCatalog(
             items = series,
             allFavorites = allFavorites,
             customCategories = customCategories,
+            providerCategories = providerCategories,
+            hiddenProviderCategoryIds = hiddenCategoryIds,
             itemId = Series::id,
+            itemCategoryId = Series::categoryId,
             itemCategoryName = Series::categoryName,
             copyWithFavorite = { series, isFavorite -> series.copy(isFavorite = isFavorite) },
             uncategorizedName = UNCATEGORIZED
@@ -698,7 +804,8 @@ class SeriesViewModel @Inject constructor(
             grouped = snapshot.grouped,
             categoryNames = snapshot.categoryNames,
             categoryCounts = snapshot.categoryCounts,
-            libraryCount = snapshot.libraryCount
+            libraryCount = snapshot.libraryCount,
+            providerCategories = providerCategories
         )
     }
 
@@ -717,20 +824,16 @@ class SeriesViewModel @Inject constructor(
 
         val (selectedItems, totalCount) = when (request.selectedCategory) {
             VodBrowseDefaults.FULL_LIBRARY_CATEGORY -> {
-                val result = seriesRepository
-                    .browseSeries(
-                        LibraryBrowseQuery(
-                            providerId = request.providerId,
-                            categoryId = null,
-                            sortBy = request.sortBy,
-                            filterBy = LibraryFilterBy(type = request.filterType),
-                            searchQuery = request.query,
-                            limit = request.loadLimit,
-                            offset = 0
-                        )
-                    )
-                    .first()
-                result.items to result.totalCount
+                val filteredItems = applyLocalBrowseToSeries(
+                    seriesRepository.getSeries(request.providerId)
+                        .first()
+                        .filterNot { item -> item.categoryId in request.hiddenCategoryIds },
+                    request.history,
+                    request.filterType,
+                    request.sortBy,
+                    request.query
+                )
+                filteredItems.take(request.loadLimit) to filteredItems.size
             }
             VodBrowseDefaults.FAVORITES_CATEGORY -> {
                 val ids = request.allFavorites
@@ -742,7 +845,9 @@ class SeriesViewModel @Inject constructor(
                 val items = if (ids.isEmpty()) {
                     emptyList()
                 } else {
-                    seriesRepository.getSeriesByIds(ids).first().orderByIds(ids)
+                    seriesRepository.getSeriesByIds(ids).first()
+                        .filterNot { item -> item.categoryId in request.hiddenCategoryIds }
+                        .orderByIds(ids)
                 }
                 val filteredItems = applyLocalBrowseToSeries(
                     items,
@@ -765,7 +870,9 @@ class SeriesViewModel @Inject constructor(
                     val items = if (ids.isEmpty()) {
                         emptyList()
                     } else {
-                        seriesRepository.getSeriesByIds(ids).first().orderByIds(ids)
+                        seriesRepository.getSeriesByIds(ids).first()
+                            .filterNot { item -> item.categoryId in request.hiddenCategoryIds }
+                            .orderByIds(ids)
                     }
                     val filteredItems = applyLocalBrowseToSeries(
                         items,
@@ -880,6 +987,8 @@ private data class SeriesCatalogParams(
     val providerCategories: List<Category>,
     val providerCategoryCounts: Map<Long, Int>,
     val libraryCount: Int,
+    val hiddenCategoryIds: Set<Long>,
+    val categorySortMode: CategorySortMode,
     val query: String
 )
 
@@ -888,14 +997,17 @@ private data class SeriesCatalogDependencies(
     val customCategories: List<Category>,
     val providerCategories: List<Category>,
     val providerCategoryCounts: Map<Long, Int>,
-    val libraryCount: Int
+    val libraryCount: Int,
+    val hiddenCategoryIds: Set<Long>,
+    val categorySortMode: CategorySortMode
 )
 
 private data class SeriesCatalogSnapshot(
     val grouped: Map<String, List<Series>>,
     val categoryNames: List<String>,
     val categoryCounts: Map<String, Int>,
-    val libraryCount: Int
+    val libraryCount: Int,
+    val providerCategories: List<Category>
 )
 
 private data class SeriesLibraryLensDependencies(
@@ -911,7 +1023,8 @@ private data class SeriesCategorySelectionDependencies(
     val history: List<PlaybackHistory>,
     val customCategories: List<Category>,
     val providerCategories: List<Category>,
-    val providerCategoryCounts: Map<Long, Int>
+    val providerCategoryCounts: Map<Long, Int>,
+    val hiddenCategoryIds: Set<Long>
 )
 
 private data class SelectedSeriesCategoryRequest(
@@ -925,7 +1038,8 @@ private data class SelectedSeriesCategoryRequest(
     val history: List<PlaybackHistory>,
     val customCategories: List<Category>,
     val providerCategories: List<Category>,
-    val providerCategoryCounts: Map<Long, Int>
+    val providerCategoryCounts: Map<Long, Int>,
+    val hiddenCategoryIds: Set<Long>
 )
 
 private data class SelectedSeriesBrowseSelection(
@@ -966,6 +1080,7 @@ data class SeriesUiState(
     val showDialog: Boolean = false,
     val selectedSeriesForDialog: Series? = null,
     val categories: List<Category> = emptyList(),
+    val providerCategories: List<Category> = emptyList(),
     val dialogGroupMemberships: List<Long> = emptyList(),
     val userMessage: String? = null,
     val selectedCategoryForOptions: Category? = null,

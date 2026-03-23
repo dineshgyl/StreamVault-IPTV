@@ -608,7 +608,7 @@ interface EpisodeDao {
 
 @Dao
 interface CategoryDao {
-    @Query("SELECT * FROM categories WHERE provider_id = :providerId AND type = :type ORDER BY name ASC")
+    @Query("SELECT * FROM categories WHERE provider_id = :providerId AND type = :type ORDER BY id ASC")
     fun getByProviderAndType(providerId: Long, type: String): Flow<List<CategoryEntity>>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
@@ -650,7 +650,10 @@ interface ProgramDao {
         FROM programs
         INNER JOIN channels
             ON channels.provider_id = programs.provider_id
-           AND channels.epg_channel_id = programs.channel_id
+           AND (
+               channels.epg_channel_id = programs.channel_id
+               OR CAST(channels.stream_id AS TEXT) = programs.channel_id
+           )
         WHERE programs.provider_id = :providerId
           AND channels.category_id = :categoryId
           AND programs.end_time > :startTime
@@ -676,7 +679,10 @@ interface ProgramDao {
               OR EXISTS (
                   SELECT 1 FROM channels
                   WHERE channels.provider_id = programs.provider_id
-                    AND channels.epg_channel_id = programs.channel_id
+                    AND (
+                        channels.epg_channel_id = programs.channel_id
+                        OR CAST(channels.stream_id AS TEXT) = programs.channel_id
+                    )
                     AND channels.category_id = :categoryId
               )
           )

@@ -1,5 +1,7 @@
 package com.streamvault.app.ui.screens.movies
 
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -29,6 +31,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.compose.ui.platform.LocalContext
 import androidx.tv.material3.Border
 import androidx.tv.material3.Button
 import androidx.tv.material3.ButtonDefaults
@@ -81,6 +84,7 @@ fun MovieDetailScreen(
         else -> {
             MovieDetailContent(
                 movie = movie,
+                hasResume = uiState.hasResume,
                 onPlay = { onPlay(movie) },
                 onBack = onBack
             )
@@ -91,9 +95,11 @@ fun MovieDetailScreen(
 @Composable
 private fun MovieDetailContent(
     movie: Movie,
+    hasResume: Boolean,
     onPlay: () -> Unit,
     onBack: () -> Unit
 ) {
+    val context = LocalContext.current
     val isTelevisionDevice = rememberIsTelevisionDevice()
     BoxWithConstraints(
         modifier = Modifier
@@ -158,7 +164,16 @@ private fun MovieDetailContent(
                 if (compactLayout) {
                     Column(verticalArrangement = Arrangement.spacedBy(18.dp)) {
                         MoviePoster(movie = movie, posterWidth = posterWidth)
-                        MovieDetailHeroText(movie = movie, onPlay = onPlay)
+                        MovieDetailHeroText(
+                            movie = movie,
+                            hasResume = hasResume,
+                            onPlay = onPlay,
+                            onPlayTrailer = {
+                                resolveTrailerUrl(movie.youtubeTrailer)?.let { trailerUrl ->
+                                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(trailerUrl)))
+                                }
+                            }
+                        )
                     }
                 } else {
                     Row(
@@ -168,7 +183,13 @@ private fun MovieDetailContent(
                         MoviePoster(movie = movie, posterWidth = posterWidth)
                         MovieDetailHeroText(
                             movie = movie,
+                            hasResume = hasResume,
                             onPlay = onPlay,
+                            onPlayTrailer = {
+                                resolveTrailerUrl(movie.youtubeTrailer)?.let { trailerUrl ->
+                                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(trailerUrl)))
+                                }
+                            },
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
@@ -202,9 +223,12 @@ private fun MoviePoster(
 @Composable
 private fun MovieDetailHeroText(
     movie: Movie,
+    hasResume: Boolean,
     onPlay: () -> Unit,
+    onPlayTrailer: () -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val hasTrailer = !movie.youtubeTrailer.isNullOrBlank()
     Column(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(18.dp)
@@ -241,14 +265,31 @@ private fun MovieDetailHeroText(
 
         MovieFactGrid(movie = movie)
 
-        Button(
-            onClick = onPlay,
-            colors = ButtonDefaults.colors(
-                containerColor = AppColors.Brand,
-                contentColor = Color.White
-            )
-        ) {
-            Text(stringResource(R.string.movie_detail_play))
+        Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Button(
+                onClick = onPlay,
+                colors = ButtonDefaults.colors(
+                    containerColor = AppColors.Brand,
+                    contentColor = Color.White
+                )
+            ) {
+                Text(
+                    stringResource(
+                        if (hasResume) R.string.player_resume else R.string.movie_detail_play
+                    )
+                )
+            }
+            if (hasTrailer) {
+                Button(
+                    onClick = onPlayTrailer,
+                    colors = ButtonDefaults.colors(
+                        containerColor = AppColors.SurfaceEmphasis,
+                        contentColor = AppColors.TextPrimary
+                    )
+                ) {
+                    Text(stringResource(R.string.movie_detail_trailer))
+                }
+            }
         }
 
         Text(
@@ -259,6 +300,17 @@ private fun MovieDetailHeroText(
             maxLines = 6,
             overflow = TextOverflow.Ellipsis
         )
+    }
+}
+
+private fun resolveTrailerUrl(rawTrailer: String?): String? {
+    val trailer = rawTrailer?.trim().orEmpty()
+    if (trailer.isBlank()) return null
+    return when {
+        trailer.startsWith("http://", ignoreCase = true) || trailer.startsWith("https://", ignoreCase = true) -> trailer
+        trailer.startsWith("youtu.be/", ignoreCase = true) -> "https://$trailer"
+        trailer.startsWith("www.youtube.com/", ignoreCase = true) || trailer.startsWith("youtube.com/", ignoreCase = true) -> "https://$trailer"
+        else -> "https://www.youtube.com/watch?v=$trailer"
     }
 }
 

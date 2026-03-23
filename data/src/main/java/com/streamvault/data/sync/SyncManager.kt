@@ -2219,7 +2219,6 @@ class SyncManager @Inject constructor(
                 )
             }
             .distinctBy { it.categoryId }
-            .sortedBy { it.name.lowercase() }
             .toList()
     }
 

@@ -51,6 +51,7 @@ import com.streamvault.app.R
 fun ProviderSetupScreen(
     onProviderAdded: () -> Unit,
     editProviderId: Long? = null,
+    initialImportUri: String? = null,
     viewModel: ProviderSetupViewModel = hiltViewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
@@ -58,62 +59,70 @@ fun ProviderSetupScreen(
     val context = LocalContext.current
     val coroutineScope = rememberCoroutineScope()
 
+    var selectedTab by rememberSaveable { mutableStateOf(0) } // 0 = Xtream, 1 = M3U
     var name by rememberSaveable { mutableStateOf("") }
     var m3uUrl by rememberSaveable { mutableStateOf("") }
     var fileImportError by rememberSaveable { mutableStateOf<String?>(null) }
+    var handledInitialImportUri by rememberSaveable { mutableStateOf<String?>(null) }
+
+    fun importM3uUri(uri: android.net.Uri) {
+        coroutineScope.launch(Dispatchers.IO) {
+            try {
+                val inputStream = context.contentResolver.openInputStream(uri)
+                if (inputStream != null) {
+                    var fileName = "Local_Playlist"
+                    val cursor = context.contentResolver.query(uri, null, null, null, null)
+                    cursor?.use {
+                        if (it.moveToFirst()) {
+                            val displayNameIndex = it.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                            if (displayNameIndex != -1) {
+                                val displayName = it.getString(displayNameIndex)
+                                if (displayName.contains(".")) {
+                                    fileName = displayName.substringBeforeLast(".")
+                                } else {
+                                    fileName = displayName
+                                }
+                            }
+                        }
+                    }
+
+                    val extension = if (uri.toString().substringBefore('?').lowercase().endsWith(".m3u8")) "m3u8" else "m3u"
+                    val outFile = java.io.File(context.filesDir, "m3u_${System.currentTimeMillis()}.$extension")
+                    outFile.outputStream().use { out ->
+                        inputStream.copyTo(out)
+                    }
+                    cleanupOldImportedM3uFiles(
+                        filesDir = context.filesDir,
+                        protectedFileUris = knownLocalM3uUrls + "file://${outFile.absolutePath}",
+                        keepLatest = 20
+                    )
+
+                    withContext(Dispatchers.Main) {
+                        viewModel.updateM3uTab(1)
+                        m3uUrl = "file://${outFile.absolutePath}"
+                        if (name.isEmpty()) {
+                            name = ProviderInputSanitizer.sanitizeProviderNameForEditing(fileName)
+                        }
+                        fileImportError = null
+                    }
+                } else {
+                    withContext(Dispatchers.Main) {
+                        fileImportError = context.getString(R.string.setup_file_import_failed)
+                    }
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    fileImportError = resolveFileImportError(context, e)
+                }
+            }
+        }
+    }
 
     val filePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.OpenDocument()
     ) { uri: android.net.Uri? ->
         if (uri != null) {
-            coroutineScope.launch(Dispatchers.IO) {
-                try {
-                    val inputStream = context.contentResolver.openInputStream(uri)
-                    if (inputStream != null) {
-                        var fileName = "Local_Playlist"
-                        val cursor = context.contentResolver.query(uri, null, null, null, null)
-                        cursor?.use {
-                            if (it.moveToFirst()) {
-                                val displayNameIndex = it.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
-                                if (displayNameIndex != -1) {
-                                    val displayName = it.getString(displayNameIndex)
-                                    if (displayName.contains(".")) {
-                                        fileName = displayName.substringBeforeLast(".")
-                                    } else {
-                                        fileName = displayName
-                                    }
-                                }
-                            }
-                        }
-
-                        val outFile = java.io.File(context.filesDir, "m3u_${System.currentTimeMillis()}.m3u")
-                        outFile.outputStream().use { out ->
-                            inputStream.copyTo(out)
-                        }
-                        cleanupOldImportedM3uFiles(
-                            filesDir = context.filesDir,
-                            protectedFileUris = knownLocalM3uUrls + "file://${outFile.absolutePath}",
-                            keepLatest = 20
-                        )
-
-                        withContext(Dispatchers.Main) {
-                            m3uUrl = "file://${outFile.absolutePath}"
-                            if (name.isEmpty()) {
-                                name = ProviderInputSanitizer.sanitizeProviderNameForEditing(fileName)
-                            }
-                            fileImportError = null
-                        }
-                    } else {
-                        withContext(Dispatchers.Main) {
-                            fileImportError = context.getString(R.string.setup_file_import_failed)
-                        }
-                    }
-                } catch (e: Exception) {
-                    withContext(Dispatchers.Main) {
-                        fileImportError = resolveFileImportError(context, e)
-                    }
-                }
-            }
+            importM3uUri(uri)
         }
     }
 
@@ -123,6 +132,17 @@ fun ProviderSetupScreen(
             protectedFileUris = knownLocalM3uUrls,
             keepLatest = 20
         )
+    }
+
+    LaunchedEffect(initialImportUri) {
+        val importUri = initialImportUri?.takeIf { it.isNotBlank() } ?: return@LaunchedEffect
+        if (handledInitialImportUri == importUri) return@LaunchedEffect
+        handledInitialImportUri = importUri
+        selectedTab = 1
+        viewModel.updateM3uTab(1)
+        runCatching { android.net.Uri.parse(importUri) }
+            .getOrNull()
+            ?.let(::importM3uUri)
     }
 
     // Navigate on success
@@ -153,7 +173,6 @@ fun ProviderSetupScreen(
     //    if (uiState.hasExistingProvider) onProviderAdded()
     // }
 
-    var selectedTab by rememberSaveable { mutableStateOf(0) } // 0 = Xtream, 1 = M3U
     var serverUrl by rememberSaveable { mutableStateOf("") }
     var username by rememberSaveable { mutableStateOf("") }
     var password by rememberSaveable { mutableStateOf("") }

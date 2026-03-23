@@ -88,6 +88,7 @@ fun AppScreenScaffold(
     subtitle: String? = null,
     modifier: Modifier = Modifier,
     navigationChrome: AppNavigationChrome = AppNavigationChrome.Rail,
+    topBarVisible: Boolean = true,
     compactHeader: Boolean = false,
     showScreenHeader: Boolean = true,
     header: (@Composable ColumnScope.() -> Unit)? = null,
@@ -162,12 +163,14 @@ fun AppScreenScaffold(
                         vertical = 10.dp
                     )
             ) {
-                TopNavigationBar(
-                    currentRoute = currentRoute,
-                    onNavigate = onNavigate,
-                    modifier = Modifier.fillMaxWidth()
-                )
-                Spacer(modifier = Modifier.height(10.dp))
+                if (topBarVisible) {
+                    TopNavigationBar(
+                        currentRoute = currentRoute,
+                        onNavigate = onNavigate,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                }
                 if (showScreenHeader) {
                     AppScreenHeader(
                         title = title,

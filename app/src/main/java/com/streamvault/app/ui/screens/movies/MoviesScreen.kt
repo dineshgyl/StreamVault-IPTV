@@ -12,6 +12,7 @@ import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.text.BasicTextField
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -72,6 +73,7 @@ import com.streamvault.app.ui.components.shell.VodActionChip
 import com.streamvault.app.ui.components.shell.VodActionChipRow
 import com.streamvault.app.ui.components.shell.VodCategoryOption
 import com.streamvault.app.ui.components.shell.VodCategoryPickerDialog
+import com.streamvault.app.ui.components.shell.VodBrowseOptionsDialog
 import com.streamvault.app.ui.components.shell.VodHeroStrip
 import com.streamvault.app.ui.components.shell.VodSectionHeader
 import com.streamvault.app.ui.screens.vod.HandleVodUserMessage
@@ -183,6 +185,7 @@ fun MoviesScreen(
                     showPinDialog = true
                 },
                 onShowDialog = viewModel::onShowDialog,
+                onShowCategoryOptions = viewModel::showCategoryOptions,
                 onSelectCategory = viewModel::selectCategory,
                 onSelectFullLibraryBrowse = viewModel::selectFullLibraryBrowse,
                 onOpenContinueWatching = {
@@ -235,6 +238,9 @@ fun MoviesScreen(
         com.streamvault.app.ui.components.dialogs.CategoryOptionsDialog(
             category = category,
             onDismissRequest = { viewModel.dismissCategoryOptions() },
+            onHide = if (!category.isVirtual) {
+                { viewModel.hideCategory(category) }
+            } else null,
             onRename = if (category.isVirtual && category.id != VodBrowseDefaults.FAVORITES_SENTINEL_ID) {
                 { viewModel.requestRenameGroup(category) }
             } else null,
@@ -279,6 +285,7 @@ private fun MoviesVodContent(
     onMovieClick: (Movie) -> Unit,
     onProtectedMovieClick: (Movie) -> Unit,
     onShowDialog: (Movie) -> Unit,
+    onShowCategoryOptions: (String) -> Unit,
     onSelectCategory: (String?) -> Unit,
     onSelectFullLibraryBrowse: () -> Unit,
     onOpenContinueWatching: () -> Unit,
@@ -308,10 +315,25 @@ private fun MoviesVodContent(
     val heroMovie = freshMovies.firstOrNull() ?: topRatedMovies.firstOrNull() ?: favoriteMovies.firstOrNull()
     val categoryOptions = remember(uiState.categoryNames, uiState.categoryCounts) {
         uiState.categoryNames.map { name ->
+            val matchedCategory = uiState.providerCategories.firstOrNull { it.name == name }
+                ?: uiState.categories.firstOrNull { it.name == name }
+                ?: if (name == uiState.favoriteCategoryName) {
+                    com.streamvault.domain.model.Category(
+                        id = VodBrowseDefaults.FAVORITES_SENTINEL_ID,
+                        name = uiState.favoriteCategoryName,
+                        type = com.streamvault.domain.model.ContentType.MOVIE,
+                        isVirtual = true
+                    )
+                } else {
+                    null
+                }
             VodCategoryOption(
                 name = name,
                 count = uiState.categoryCounts[name] ?: 0,
-                onClick = { onSelectCategory(name) }
+                onClick = { onSelectCategory(name) },
+                onLongClick = matchedCategory?.let { category ->
+                    { onShowCategoryOptions(category.name) }
+                }
             )
         }
     }
@@ -431,40 +453,31 @@ private fun MoviesVodContent(
             }
 
             if (favoriteMovies.isNotEmpty()) {
-                item("favorites_header") {
-                    VodSectionHeader(
-                        title = stringResource(R.string.favorites_title),
-                        onSeeAll = { onSelectCategory(uiState.favoriteCategoryName) }
-                    )
-                }
                 item("favorites_row") {
-                    LazyRow(
-                        contentPadding = PaddingValues(horizontal = 20.dp),
-                        horizontalArrangement = Arrangement.spacedBy(12.dp)
-                    ) {
-                        items(favoriteMovies, key = { it.id }) { movie ->
-                            val isLocked = (movie.isAdult || movie.isUserProtected) && uiState.parentalControlLevel == 1
-                            MovieCard(
-                                movie = movie,
-                                isLocked = isLocked,
-                                onClick = {
-                                    if (isLocked) onProtectedMovieClick(movie) else onMovieClick(movie)
-                                },
-                                onLongClick = { onShowDialog(movie) },
-                                modifier = Modifier.width(favoriteCardWidth)
-                            )
-                        }
+                    CategoryRow(
+                        title = stringResource(R.string.favorites_title),
+                        items = favoriteMovies,
+                        onSeeAll = { onSelectCategory(uiState.favoriteCategoryName) },
+                        keySelector = { it.id }
+                    ) { movie ->
+                        val isLocked = (movie.isAdult || movie.isUserProtected) && uiState.parentalControlLevel == 1
+                        MovieCard(
+                            movie = movie,
+                            isLocked = isLocked,
+                            onClick = {
+                                if (isLocked) onProtectedMovieClick(movie) else onMovieClick(movie)
+                            },
+                            onLongClick = { onShowDialog(movie) },
+                            modifier = Modifier.width(favoriteCardWidth)
+                        )
                     }
                 }
             }
 
             if (freshMovies.isNotEmpty()) {
-                item("fresh_header") {
-                    VodSectionHeader(title = stringResource(R.string.library_lens_fresh_movies))
-                }
                 item("fresh_row") {
                     CategoryRow(
-                        title = "",
+                        title = stringResource(R.string.library_lens_fresh_movies),
                         items = freshMovies,
                         onSeeAll = null,
                         keySelector = { it.id }
@@ -481,12 +494,9 @@ private fun MoviesVodContent(
             }
 
             if (topRatedMovies.isNotEmpty()) {
-                item("top_header") {
-                    VodSectionHeader(title = stringResource(R.string.library_lens_top_rated))
-                }
                 item("top_row") {
                     CategoryRow(
-                        title = "",
+                        title = stringResource(R.string.library_lens_top_rated),
                         items = topRatedMovies,
                         onSeeAll = null,
                         keySelector = { it.id }
@@ -508,14 +518,10 @@ private fun MoviesVodContent(
                 }.take(8),
                 key = { it.key }
             ) { (categoryName, movies) ->
-                VodSectionHeader(
-                    title = categoryName,
-                    onSeeAll = { onSelectCategory(categoryName) }
-                )
                 CategoryRow(
-                    title = "",
+                    title = categoryName,
                     items = movies,
-                    onSeeAll = null,
+                    onSeeAll = { onSelectCategory(categoryName) },
                     keySelector = { it.id }
                 ) { movie ->
                     val isLocked = (movie.isAdult || movie.isUserProtected) && uiState.parentalControlLevel == 1
@@ -536,6 +542,27 @@ private fun MoviesVodContent(
         if (uiState.isReorderMode) uiState.filteredMovies else baseMovies
     }
     var draggingMovie by remember { mutableStateOf<Movie?>(null) }
+    var showBrowseOptions by rememberSaveable(uiState.selectedCategory) { mutableStateOf(false) }
+    var showSearchBar by rememberSaveable(uiState.selectedCategory) { mutableStateOf(searchQuery.isNotBlank()) }
+
+    if (showBrowseOptions) {
+        VodBrowseOptionsDialog(
+            title = stringResource(R.string.nav_movies),
+            filterTitle = stringResource(R.string.library_filter_title),
+            filterChips = movieFilterChips(),
+            selectedFilterKey = selectedFilterType.name,
+            onFilterSelected = { key ->
+                LibraryFilterType.entries.firstOrNull { it.name == key }?.let(onSelectedFilterTypeChange)
+            },
+            sortTitle = stringResource(R.string.library_sort_title),
+            sortChips = movieSortChips(),
+            selectedSortKey = selectedSortBy.name,
+            onSortSelected = { key ->
+                LibrarySortBy.entries.firstOrNull { it.name == key }?.let(onSelectedSortByChange)
+            },
+            onDismiss = { showBrowseOptions = false }
+        )
+    }
 
     LazyVerticalGrid(
         columns = GridCells.Adaptive(minSize = 148.dp),
@@ -581,6 +608,20 @@ private fun MoviesVodContent(
                                 onClick = { showCategoryPicker = true }
                             )
                         )
+                        add(
+                            VodActionChip(
+                                key = "search_toggle",
+                                label = if (showSearchBar) "Hide Search" else "Search",
+                                onClick = { showSearchBar = !showSearchBar }
+                            )
+                        )
+                        add(
+                            VodActionChip(
+                                key = "browse_options",
+                                label = "Filters & Sort",
+                                onClick = { showBrowseOptions = true }
+                            )
+                        )
                         if (uiState.selectedCategory != uiState.fullLibraryCategoryName) {
                             add(
                                 VodActionChip(
@@ -595,52 +636,16 @@ private fun MoviesVodContent(
                 )
             }
 
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                SearchInput(
-                    value = searchQuery,
-                    onValueChange = onSearchQueryChange,
-                    placeholder = stringResource(R.string.movies_search_placeholder),
-                    onSearch = {},
-                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
-                )
-            }
-
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                SelectionChipRow(
-                    title = "",
-                    chips = movieFilterChips(),
-                    selectedKey = selectedFilterType.name,
-                    onChipSelected = { key ->
-                        LibraryFilterType.entries.firstOrNull { it.name == key }?.let(onSelectedFilterTypeChange)
-                    },
-                    modifier = Modifier.padding(horizontal = 0.dp),
-                    contentPadding = PaddingValues(horizontal = 4.dp)
-                )
-            }
-
-            item(span = { GridItemSpan(maxLineSpan) }) {
-                SelectionChipRow(
-                    title = "",
-                    chips = LibrarySortBy.entries.map { sort ->
-                        SelectionChip(
-                            key = sort.name,
-                            label = when (sort) {
-                                LibrarySortBy.LIBRARY -> stringResource(R.string.library_sort_library)
-                                LibrarySortBy.TITLE -> stringResource(R.string.library_sort_az)
-                                LibrarySortBy.RELEASE -> stringResource(R.string.library_sort_release)
-                                LibrarySortBy.UPDATED -> stringResource(R.string.library_sort_updated)
-                                LibrarySortBy.RATING -> stringResource(R.string.library_sort_rating)
-                                LibrarySortBy.WATCH_COUNT -> "Recent Activity"
-                            }
-                        )
-                    },
-                    selectedKey = selectedSortBy.name,
-                    onChipSelected = { key ->
-                        LibrarySortBy.entries.firstOrNull { it.name == key }?.let(onSelectedSortByChange)
-                    },
-                    modifier = Modifier.padding(horizontal = 0.dp),
-                    contentPadding = PaddingValues(horizontal = 4.dp)
-                )
+            if (showSearchBar) {
+                item(span = { GridItemSpan(maxLineSpan) }) {
+                    SearchInput(
+                        value = searchQuery,
+                        onValueChange = onSearchQueryChange,
+                        placeholder = stringResource(R.string.movies_search_placeholder),
+                        onSearch = {},
+                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
+                    )
+                }
             }
         }
 
@@ -723,6 +728,22 @@ private fun movieFilterChips(): List<SelectionChip> {
         SelectionChip(LibraryFilterType.RECENTLY_UPDATED.name, "Recent"),
         SelectionChip(LibraryFilterType.TOP_RATED.name, "Top Rated")
     )
+}
+
+private fun movieSortChips(): List<SelectionChip> {
+    return LibrarySortBy.entries.map { sort ->
+        SelectionChip(
+            key = sort.name,
+            label = when (sort) {
+                LibrarySortBy.LIBRARY -> "Library Order"
+                LibrarySortBy.TITLE -> "A-Z"
+                LibrarySortBy.RELEASE -> "Newest"
+                LibrarySortBy.UPDATED -> "Recently Updated"
+                LibrarySortBy.RATING -> "Rating"
+                LibrarySortBy.WATCH_COUNT -> "Recent Activity"
+            }
+        )
+    }
 }
 
 

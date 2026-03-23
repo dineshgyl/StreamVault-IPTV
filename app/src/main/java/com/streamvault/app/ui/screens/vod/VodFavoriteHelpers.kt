@@ -1,6 +1,8 @@
 package com.streamvault.app.ui.screens.vod
 
 import com.streamvault.domain.model.ContentType
+import com.streamvault.domain.model.Result
+import com.streamvault.domain.model.VirtualGroup
 import com.streamvault.domain.repository.FavoriteRepository
 
 data class VodDialogSelection<T>(
@@ -56,6 +58,5 @@ suspend fun createVodGroup(
     name: String,
     contentType: ContentType,
     favoriteRepository: FavoriteRepository
-) {
+): Result<VirtualGroup> =
     favoriteRepository.createGroup(name, contentType = contentType)
-}

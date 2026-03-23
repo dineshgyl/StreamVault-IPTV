@@ -84,11 +84,13 @@ class DashboardViewModel @Inject constructor(
                             observeContinueWatching(provider.id).onStart { emit(emptyList()) },
                             movieRepository.getMovies(provider.id).map { movies ->
                                 movies
+                                    .filterNot(::shouldHideVodFromHome)
                                     .sortedByDescending(::movieFreshnessScore)
                                     .take(MOVIE_SHELF_LIMIT)
                             }.onStart { emit(emptyList()) },
                             seriesRepository.getSeries(provider.id).map { series ->
                                 series
+                                    .filterNot(::shouldHideVodFromHome)
                                     .sortedByDescending(::seriesFreshnessScore)
                                     .take(SERIES_SHELF_LIMIT)
                             }.onStart { emit(emptyList()) }
@@ -199,42 +201,11 @@ class DashboardViewModel @Inject constructor(
     private fun buildLiveContext(providerId: Long): Flow<DashboardLiveContext> =
         combine(
             getCustomCategories(ContentType.LIVE),
-            playbackHistoryRepository.getRecentlyWatchedByProvider(providerId, RECENT_CHANNEL_LIMIT)
-                .map { history ->
-                    history
-                        .filter { it.contentType == ContentType.LIVE }
-                        .distinctBy { it.contentId }
-                        .count()
-                },
             preferencesRepository.getLastLiveCategoryId(providerId),
             preferencesRepository.promotedLiveGroupIds
-        ) { customCategories, recentCount, lastVisitedCategoryId, promotedGroupIds ->
+        ) { customCategories, lastVisitedCategoryId, promotedGroupIds ->
             val lastVisitedCategory = customCategories.firstOrNull { it.id == lastVisitedCategoryId }
             val shortcuts = buildList {
-                customCategories
-                    .firstOrNull { it.id == VirtualCategoryIds.FAVORITES && it.count > 0 }
-                    ?.let {
-                        add(
-                            DashboardLiveShortcut(
-                                label = it.name,
-                                detail = "${it.count} saved",
-                                categoryId = it.id,
-                                type = DashboardShortcutType.FAVORITES
-                            )
-                        )
-                    }
-
-                if (recentCount > 0) {
-                    add(
-                        DashboardLiveShortcut(
-                            label = "Recent",
-                            detail = "$recentCount channels",
-                            categoryId = VirtualCategoryIds.RECENT,
-                            type = DashboardShortcutType.RECENT
-                        )
-                    )
-                }
-
                 lastVisitedCategory?.let {
                     add(
                         DashboardLiveShortcut(
@@ -373,6 +344,22 @@ class DashboardViewModel @Inject constructor(
             .takeIf { it > 0L }
             ?: parseDateScore(series.releaseDate)
             ?: series.id
+    }
+
+    private fun shouldHideVodFromHome(movie: Movie): Boolean {
+        if (movie.isAdult || movie.isUserProtected) return true
+        return titleLooksExplicit(movie.name)
+    }
+
+    private fun shouldHideVodFromHome(series: Series): Boolean {
+        if (series.isAdult || series.isUserProtected) return true
+        return titleLooksExplicit(series.name)
+    }
+
+    private fun titleLooksExplicit(title: String): Boolean {
+        val normalized = title.lowercase()
+        val explicitTerms = listOf("porn", "porno", "xxx", "adult", "18+", "sex", "erotic", "hentai")
+        return explicitTerms.any { term -> normalized.contains(term) }
     }
 
     private fun parseDateScore(raw: String?): Long? {

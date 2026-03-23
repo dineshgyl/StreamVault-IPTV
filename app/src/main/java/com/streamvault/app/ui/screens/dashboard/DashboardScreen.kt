@@ -693,11 +693,11 @@ private fun rememberDashboardSections(
     ) {
         val preferred = listOf(
             DashboardHomeSection.FAVORITE_CHANNELS,
+            DashboardHomeSection.RECENT_CHANNELS,
+            DashboardHomeSection.LIVE_SHORTCUTS,
             DashboardHomeSection.CONTINUE_WATCHING,
             DashboardHomeSection.RECENT_MOVIES,
-            DashboardHomeSection.RECENT_SERIES,
-            DashboardHomeSection.LIVE_SHORTCUTS,
-            DashboardHomeSection.RECENT_CHANNELS
+            DashboardHomeSection.RECENT_SERIES
         )
 
         preferred.filter { section ->

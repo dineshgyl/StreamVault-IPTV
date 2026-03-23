@@ -26,7 +26,10 @@ class SeriesDetailViewModel @Inject constructor(
     private val playbackHistoryRepository: PlaybackHistoryRepository
 ) : ViewModel() {
 
-    private val seriesId: Long = checkNotNull(savedStateHandle.get<String>("seriesId")?.toLongOrNull())
+    private val seriesId: Long = checkNotNull(
+        savedStateHandle.get<Long>("seriesId")
+            ?: savedStateHandle.get<String>("seriesId")?.toLongOrNull()
+    )
 
     private val _uiState = MutableStateFlow(SeriesDetailUiState())
     val uiState: StateFlow<SeriesDetailUiState> = _uiState.asStateFlow()

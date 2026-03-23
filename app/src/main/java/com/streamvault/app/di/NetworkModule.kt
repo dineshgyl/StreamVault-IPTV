@@ -99,5 +99,8 @@ object NetworkModule {
     fun provideAuxiliaryPlayerEngine(
         @ApplicationContext context: Context,
         okHttpClient: OkHttpClient
-    ): PlayerEngine = Media3PlayerEngine(context, okHttpClient)
+    ): PlayerEngine = Media3PlayerEngine(context, okHttpClient).apply {
+        enableMediaSession = false
+        bypassAudioFocus = true
+    }
 }

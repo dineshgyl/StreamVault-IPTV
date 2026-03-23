@@ -14,6 +14,9 @@ import com.streamvault.domain.manager.BackupImportPlan
 import com.streamvault.domain.manager.BackupManager
 import com.streamvault.domain.manager.BackupPreview
 import com.streamvault.domain.manager.RecordingManager
+import com.streamvault.domain.model.Category
+import com.streamvault.domain.model.CategorySortMode
+import com.streamvault.domain.model.ContentType
 import com.streamvault.domain.model.Provider
 import com.streamvault.domain.model.ProviderStatus
 import com.streamvault.domain.model.ProviderType
@@ -30,6 +33,7 @@ import com.streamvault.domain.usecase.ImportBackupResult
 import com.streamvault.domain.usecase.InspectBackupCommand
 import com.streamvault.domain.usecase.InspectBackupResult
 import com.streamvault.domain.repository.ProviderRepository
+import com.streamvault.domain.repository.CategoryRepository
 import com.streamvault.domain.repository.SyncMetadataRepository
 import com.streamvault.domain.usecase.SyncProvider
 import com.streamvault.domain.usecase.SyncProviderCommand
@@ -73,6 +77,7 @@ private data class SettingsPreferenceSnapshot(
 class SettingsViewModel @Inject constructor(
     application: Application,
     private val providerRepository: ProviderRepository,
+    private val categoryRepository: CategoryRepository,
     private val preferencesRepository: PreferencesRepository,
     private val internetSpeedTestRunner: InternetSpeedTestRunner,
     private val backupManager: BackupManager,
@@ -242,6 +247,56 @@ class SettingsViewModel @Inject constructor(
         }
 
         viewModelScope.launch {
+            preferencesRepository.lastActiveProviderId
+                .flatMapLatest { providerId ->
+                    if (providerId == null) {
+                        flowOf(CategoryManagementSnapshot())
+                    } else {
+                        combine(
+                            preferencesRepository.getCategorySortMode(providerId, ContentType.LIVE),
+                            preferencesRepository.getCategorySortMode(providerId, ContentType.MOVIE),
+                            preferencesRepository.getCategorySortMode(providerId, ContentType.SERIES),
+                            categoryRepository.getCategories(providerId),
+                            preferencesRepository.getHiddenCategoryIds(providerId, ContentType.LIVE),
+                            preferencesRepository.getHiddenCategoryIds(providerId, ContentType.MOVIE),
+                            preferencesRepository.getHiddenCategoryIds(providerId, ContentType.SERIES)
+                        ) { values ->
+                            val liveSort = values[0] as CategorySortMode
+                            val movieSort = values[1] as CategorySortMode
+                            val seriesSort = values[2] as CategorySortMode
+                            val categories = values[3] as List<Category>
+                            val hiddenLive = values[4] as Set<Long>
+                            val hiddenMovies = values[5] as Set<Long>
+                            val hiddenSeries = values[6] as Set<Long>
+                            val hiddenByType = mapOf(
+                                ContentType.LIVE to hiddenLive,
+                                ContentType.MOVIE to hiddenMovies,
+                                ContentType.SERIES to hiddenSeries
+                            )
+                            CategoryManagementSnapshot(
+                                categorySortModes = mapOf(
+                                    ContentType.LIVE to liveSort,
+                                    ContentType.MOVIE to movieSort,
+                                    ContentType.SERIES to seriesSort
+                                ),
+                                hiddenCategories = categories
+                                    .filter { category -> category.id in hiddenByType[category.type].orEmpty() }
+                                    .sortedWith(compareBy<Category>({ it.type.ordinal }, { it.name.lowercase() }))
+                            )
+                        }
+                    }
+                }
+                .collect { snapshot ->
+                    _uiState.update {
+                        it.copy(
+                            categorySortModes = snapshot.categorySortModes,
+                            hiddenCategories = snapshot.hiddenCategories
+                        )
+                    }
+                }
+        }
+
+        viewModelScope.launch {
             recordingManager.observeRecordingItems().collect { items ->
                 _uiState.update { it.copy(recordingItems = items.sortedByDescending(RecordingItem::scheduledStartMs)) }
             }
@@ -278,6 +333,26 @@ class SettingsViewModel @Inject constructor(
     fun setLiveTvChannelMode(mode: LiveTvChannelMode) {
         viewModelScope.launch {
             preferencesRepository.setLiveTvChannelMode(mode.name)
+        }
+    }
+
+    fun setCategorySortMode(type: ContentType, mode: CategorySortMode) {
+        val providerId = _uiState.value.activeProviderId ?: return
+        viewModelScope.launch {
+            preferencesRepository.setCategorySortMode(providerId, type, mode)
+        }
+    }
+
+    fun unhideCategory(category: Category) {
+        val providerId = _uiState.value.activeProviderId ?: return
+        viewModelScope.launch {
+            preferencesRepository.setCategoryHidden(
+                providerId = providerId,
+                type = category.type,
+                categoryId = category.id,
+                hidden = false
+            )
+            _uiState.update { it.copy(userMessage = "Unhid ${category.name}") }
         }
     }
 
@@ -686,7 +761,9 @@ data class SettingsUiState(
     val recordingItems: List<RecordingItem> = emptyList(),
     val recordingStorageState: RecordingStorageState = RecordingStorageState(),
     val isIncognitoMode: Boolean = false,
-    val liveTvChannelMode: LiveTvChannelMode = LiveTvChannelMode.COMFORTABLE
+    val liveTvChannelMode: LiveTvChannelMode = LiveTvChannelMode.COMFORTABLE,
+    val categorySortModes: Map<ContentType, CategorySortMode> = emptyMap(),
+    val hiddenCategories: List<Category> = emptyList()
 )
 
 data class InternetSpeedTestUiModel(
@@ -695,4 +772,9 @@ data class InternetSpeedTestUiModel(
     val transportLabel: String,
     val recommendedMaxVideoHeight: Int?,
     val isEstimated: Boolean
+)
+
+private data class CategoryManagementSnapshot(
+    val categorySortModes: Map<ContentType, CategorySortMode> = emptyMap(),
+    val hiddenCategories: List<Category> = emptyList()
 )

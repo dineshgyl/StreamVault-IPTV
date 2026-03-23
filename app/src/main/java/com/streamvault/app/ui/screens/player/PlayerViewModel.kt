@@ -1,6 +1,7 @@
 package com.streamvault.app.ui.screens.player
 
 import android.graphics.Bitmap
+import android.os.SystemClock
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.streamvault.app.cast.CastConnectionState
@@ -8,6 +9,7 @@ import com.streamvault.app.cast.CastManager
 import com.streamvault.app.cast.CastMediaRequest
 import com.streamvault.app.cast.CastStartResult
 import com.streamvault.app.di.MainPlayerEngine
+import com.streamvault.app.util.isPlaybackComplete
 import com.streamvault.app.tv.LauncherRecommendationsManager
 import com.streamvault.app.tv.WatchNextManager
 import com.streamvault.data.remote.xtream.XtreamStreamUrlResolver
@@ -32,7 +34,6 @@ import com.streamvault.domain.repository.ChannelRepository
 import com.streamvault.domain.repository.EpgRepository
 import com.streamvault.domain.repository.MovieRepository
 import com.streamvault.domain.repository.PlaybackHistoryRepository
-import com.streamvault.domain.util.isPlaybackComplete
 import com.streamvault.player.PlaybackState
 import com.streamvault.player.PlayerEngine
 import com.streamvault.player.PlayerError
@@ -133,6 +134,9 @@ class PlayerViewModel @Inject constructor(
     private val xtreamStreamUrlResolver: XtreamStreamUrlResolver,
     private val seekThumbnailProvider: SeekThumbnailProvider
 ) : ViewModel() {
+    companion object {
+        private const val MUTE_TOGGLE_DEBOUNCE_MS = 250L
+    }
 
     private val _showControls = MutableStateFlow(false)
     val showControls: StateFlow<Boolean> = _showControls.asStateFlow()
@@ -215,6 +219,7 @@ class PlayerViewModel @Inject constructor(
     private var numericInputCommitJob: Job? = null
     private var numericInputFeedbackJob: Job? = null
     private var playerNoticeHideJob: Job? = null
+    private var mutePersistJob: Job? = null
     private var numericInputBuffer: String = ""
     private val triedAlternativeStreams = mutableSetOf<String>()
     private val failedStreamsThisSession = mutableMapOf<String, Int>()
@@ -245,15 +250,17 @@ class PlayerViewModel @Inject constructor(
         viewModelScope.launch {
             playerEngine.playbackState.collect { state ->
                 _playerDiagnostics.update { it.copy(playbackStateLabel = state.name.replace('_', ' ')) }
-                if (state == PlaybackState.READY && currentContentType == ContentType.LIVE) {
+                if (state == PlaybackState.READY) {
                     zapBufferWatchdogJob?.cancel()
-                    dismissRetryNoticeIfPresent()
-                    _currentChannel.value?.let { channel ->
-                        if (channel.errorCount > 0) {
-                            logRepositoryFailure(
-                                operation = "Reset channel error count",
-                                result = channelRepository.resetChannelErrorCount(channel.id)
-                            )
+                    dismissRecoveredNoticeIfPresent()
+                    if (currentContentType == ContentType.LIVE) {
+                        _currentChannel.value?.let { channel ->
+                            if (channel.errorCount > 0) {
+                                logRepositoryFailure(
+                                    operation = "Reset channel error count",
+                                    result = channelRepository.resetChannelErrorCount(channel.id)
+                                )
+                            }
                         }
                     }
                 }
@@ -510,6 +517,7 @@ class PlayerViewModel @Inject constructor(
     private var isAppInForeground: Boolean = true
     private var shouldResumeAfterForeground: Boolean = false
     private var seekPreviewRequestVersion: Long = 0L
+    private var lastMuteToggleAtMs: Long = 0L
     
     val playerError: StateFlow<PlayerError?> = playerEngine.error
         .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), null)
@@ -1399,11 +1407,11 @@ class PlayerViewModel @Inject constructor(
     }
 
     private fun resolvePlaybackErrorMessage(error: PlayerError): String = when (classifyPlaybackError(error)) {
-        PlayerRecoveryType.NETWORK -> "The stream stopped responding after retries. Check the network or try another source."
-        PlayerRecoveryType.SOURCE -> "This stream failed after retries on the available paths."
-        PlayerRecoveryType.DECODER -> "Playback failed in the current decoder path."
+        PlayerRecoveryType.NETWORK -> "This stream is not responding right now. You can retry or try another source."
+        PlayerRecoveryType.SOURCE -> "We couldn't start this stream on the available paths."
+        PlayerRecoveryType.DECODER -> "This stream could not play in the current decoder mode."
         PlayerRecoveryType.DRM -> "Playback requires valid DRM credentials or a supported device security level."
-        PlayerRecoveryType.BUFFER_TIMEOUT -> "Playback stalled for too long after retries on this stream."
+        PlayerRecoveryType.BUFFER_TIMEOUT -> "Playback stayed stuck buffering for too long on this stream."
         PlayerRecoveryType.CATCH_UP -> "Replay is unavailable for the selected program."
         PlayerRecoveryType.UNKNOWN -> error.message.ifBlank { "Playback failed for an unknown reason." }
     }
@@ -1626,9 +1634,13 @@ class PlayerViewModel @Inject constructor(
     fun seekForward() = playerEngine.seekForward()
     fun seekBackward() = playerEngine.seekBackward()
     fun toggleMute() {
-        val muted = !isMuted.value
-        playerEngine.setMuted(muted)
-        viewModelScope.launch {
+        val now = SystemClock.elapsedRealtime()
+        if (now - lastMuteToggleAtMs < MUTE_TOGGLE_DEBOUNCE_MS) return
+        lastMuteToggleAtMs = now
+        playerEngine.toggleMute()
+        val muted = playerEngine.isMuted.value
+        mutePersistJob?.cancel()
+        mutePersistJob = viewModelScope.launch {
             preferencesRepository.setPlayerMuted(muted)
         }
     }
@@ -1842,8 +1854,9 @@ class PlayerViewModel @Inject constructor(
         _playerNotice.value = null
     }
 
-    private fun dismissRetryNoticeIfPresent() {
-        if (_playerNotice.value?.isRetryNotice == true) {
+    private fun dismissRecoveredNoticeIfPresent() {
+        val notice = _playerNotice.value ?: return
+        if (notice.isRetryNotice || notice.recoveryType != PlayerRecoveryType.UNKNOWN) {
             dismissPlayerNotice()
         }
     }
@@ -1874,7 +1887,7 @@ class PlayerViewModel @Inject constructor(
         message: String,
         recoveryType: PlayerRecoveryType = PlayerRecoveryType.UNKNOWN,
         actions: List<PlayerNoticeAction> = emptyList(),
-        durationMs: Long = if (actions.isNotEmpty()) 8000L else 3600L,
+        durationMs: Long = if (actions.isNotEmpty()) 6500L else 3200L,
         isRetryNotice: Boolean = false
     ) {
         playerNoticeHideJob?.cancel()

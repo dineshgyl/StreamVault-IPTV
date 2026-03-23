@@ -37,6 +37,7 @@ import android.view.View
 import java.util.Locale
 import android.content.Context
 import android.content.ContextWrapper
+import android.net.Uri
 import android.content.res.AssetManager
 import android.content.res.Resources
 import android.speech.RecognizerIntent
@@ -245,6 +246,7 @@ class MainActivity : ComponentActivity() {
     private fun Intent.toExternalNavigationRequest(): ExternalNavigationRequest? {
         readPlayerRequestExtra()?.let { return ExternalNavigationRequest.Player(it) }
         getStringExtra(EXTRA_EXTERNAL_ROUTE)?.let { return ExternalNavigationRequest.Route(it) }
+        readImportedPlaylistUri()?.let { return ExternalNavigationRequest.ImportM3u(it) }
 
         val query = when (action) {
             Intent.ACTION_SEARCH,
@@ -258,6 +260,26 @@ class MainActivity : ComponentActivity() {
         }?.trim().orEmpty()
 
         return query.takeIf { it.isNotBlank() }?.let(ExternalNavigationRequest::Search)
+    }
+
+    private fun Intent.readImportedPlaylistUri(): String? {
+        if (action != Intent.ACTION_VIEW) return null
+        val targetUri = data ?: return null
+        val normalizedPath = targetUri.toString().substringBefore('?').lowercase(Locale.ROOT)
+        val mimeType = type?.lowercase(Locale.ROOT).orEmpty()
+        val isPlaylistMime = mimeType in setOf(
+            "audio/x-mpegurl",
+            "audio/mpegurl",
+            "application/x-mpegurl",
+            "application/vnd.apple.mpegurl",
+            "application/mpegurl"
+        )
+        val isPlaylistPath = normalizedPath.endsWith(".m3u") || normalizedPath.endsWith(".m3u8")
+        if (!isPlaylistMime && !isPlaylistPath) return null
+        return when (targetUri.scheme?.lowercase(Locale.ROOT)) {
+            "content", "file" -> targetUri.toString()
+            else -> null
+        }
     }
 
     @Suppress("DEPRECATION")

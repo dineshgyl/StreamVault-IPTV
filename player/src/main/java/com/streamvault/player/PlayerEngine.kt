@@ -7,6 +7,8 @@ import com.streamvault.domain.model.DrmScheme
 import com.streamvault.domain.model.StreamInfo
 import com.streamvault.domain.model.VideoFormat
 import androidx.media3.common.PlaybackException
+import com.streamvault.player.playback.PlaybackErrorCategory
+import com.streamvault.player.playback.PlayerErrorClassifier
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -119,40 +121,22 @@ sealed class PlayerError(val message: String) {
     companion object {
         fun fromException(e: Throwable): PlayerError {
             val msg = e.message ?: "Unknown playback error"
-            if (e is PlaybackException) {
-                return when (e.errorCode) {
-                    PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED,
-                    PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_TIMEOUT,
-                    PlaybackException.ERROR_CODE_IO_UNSPECIFIED ->
-                        NetworkError(msg)
-                    PlaybackException.ERROR_CODE_IO_BAD_HTTP_STATUS,
-                    PlaybackException.ERROR_CODE_IO_FILE_NOT_FOUND,
-                    PlaybackException.ERROR_CODE_IO_NO_PERMISSION,
-                    PlaybackException.ERROR_CODE_IO_CLEARTEXT_NOT_PERMITTED,
-                    PlaybackException.ERROR_CODE_IO_READ_POSITION_OUT_OF_RANGE,
-                    PlaybackException.ERROR_CODE_PARSING_CONTAINER_MALFORMED,
-                    PlaybackException.ERROR_CODE_PARSING_MANIFEST_MALFORMED ->
-                        SourceError(msg)
-                    PlaybackException.ERROR_CODE_DECODER_INIT_FAILED,
-                    PlaybackException.ERROR_CODE_DECODER_QUERY_FAILED,
-                    PlaybackException.ERROR_CODE_DECODING_FAILED,
-                    PlaybackException.ERROR_CODE_DECODING_FORMAT_EXCEEDS_CAPABILITIES,
-                    PlaybackException.ERROR_CODE_DECODING_FORMAT_UNSUPPORTED ->
-                        DecoderError(msg)
-                    PlaybackException.ERROR_CODE_DRM_CONTENT_ERROR,
-                    PlaybackException.ERROR_CODE_DRM_DEVICE_REVOKED,
-                    PlaybackException.ERROR_CODE_DRM_DISALLOWED_OPERATION,
-                    PlaybackException.ERROR_CODE_DRM_LICENSE_ACQUISITION_FAILED,
-                    PlaybackException.ERROR_CODE_DRM_LICENSE_EXPIRED,
-                    PlaybackException.ERROR_CODE_DRM_PROVISIONING_FAILED,
-                    PlaybackException.ERROR_CODE_DRM_SCHEME_UNSUPPORTED,
-                    PlaybackException.ERROR_CODE_DRM_SYSTEM_ERROR,
-                    PlaybackException.ERROR_CODE_DRM_UNSPECIFIED ->
-                        DrmError(msg)
-                    else -> UnknownError(msg)
-                }
+            return when (PlayerErrorClassifier.classify(e)) {
+                PlaybackErrorCategory.NETWORK,
+                PlaybackErrorCategory.HTTP_SERVER,
+                PlaybackErrorCategory.HTTP_AUTH,
+                PlaybackErrorCategory.CLEAR_TEXT_BLOCKED,
+                PlaybackErrorCategory.SSL -> NetworkError(msg)
+
+                PlaybackErrorCategory.SOURCE_MALFORMED,
+                PlaybackErrorCategory.LIVE_WINDOW -> SourceError(msg)
+
+                PlaybackErrorCategory.DECODER,
+                PlaybackErrorCategory.FORMAT_UNSUPPORTED -> DecoderError(msg)
+
+                PlaybackErrorCategory.DRM -> DrmError(msg)
+                PlaybackErrorCategory.UNKNOWN -> UnknownError(msg)
             }
-            return UnknownError(msg)
         }
     }
 }
