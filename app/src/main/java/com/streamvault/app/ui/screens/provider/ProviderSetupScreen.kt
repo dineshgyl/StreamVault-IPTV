@@ -69,7 +69,14 @@ fun ProviderSetupScreen(
         coroutineScope.launch(Dispatchers.IO) {
             try {
                 val inputStream = context.contentResolver.openInputStream(uri)
-                if (inputStream != null) {
+                if (inputStream == null) {
+                    withContext(Dispatchers.Main) {
+                        fileImportError = context.getString(R.string.setup_file_import_failed)
+                    }
+                    return@launch
+                }
+
+                inputStream.use {
                     var fileName = "Local_Playlist"
                     val cursor = context.contentResolver.query(uri, null, null, null, null)
                     cursor?.use {
@@ -105,10 +112,6 @@ fun ProviderSetupScreen(
                         }
                         fileImportError = null
                     }
-                } else {
-                    withContext(Dispatchers.Main) {
-                        fileImportError = context.getString(R.string.setup_file_import_failed)
-                    }
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
@@ -127,7 +130,7 @@ fun ProviderSetupScreen(
     }
 
     LaunchedEffect(knownLocalM3uUrls) {
-        cleanupOldImportedM3uFiles(
+        cleanupOldImportedM3uFilesAsync(
             filesDir = context.filesDir,
             protectedFileUris = knownLocalM3uUrls,
             keepLatest = 20
@@ -159,7 +162,7 @@ fun ProviderSetupScreen(
                 selectedLocal?.let(::add)
             }
 
-            cleanupOldImportedM3uFiles(
+            cleanupOldImportedM3uFilesAsync(
                 filesDir = context.filesDir,
                 protectedFileUris = protectedUris,
                 keepLatest = 20
@@ -876,6 +879,20 @@ private fun cleanupOldImportedM3uFiles(
                 runCatching { staleFile.delete() }
             }
         }
+}
+
+private suspend fun cleanupOldImportedM3uFilesAsync(
+    filesDir: java.io.File,
+    protectedFileUris: Set<String>,
+    keepLatest: Int
+) {
+    withContext(Dispatchers.IO) {
+        cleanupOldImportedM3uFiles(
+            filesDir = filesDir,
+            protectedFileUris = protectedFileUris,
+            keepLatest = keepLatest
+        )
+    }
 }
 
 private fun resolveFileImportError(

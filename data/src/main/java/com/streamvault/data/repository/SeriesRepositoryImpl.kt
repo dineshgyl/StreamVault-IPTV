@@ -42,7 +42,9 @@ class SeriesRepositoryImpl @Inject constructor(
     private val xtreamStreamUrlResolver: XtreamStreamUrlResolver
 ) : SeriesRepository {
     private companion object {
-        const val SEARCH_RESULT_LIMIT = 320
+        const val SEARCH_RESULT_LIMIT = 200
+        const val MIN_SEARCH_QUERY_LENGTH = 2
+        const val BROWSE_WINDOW_BUFFER = 80
     }
 
     private data class CachedXtreamProvider(
@@ -58,13 +60,13 @@ class SeriesRepositoryImpl @Inject constructor(
         combine(
             seriesDao.getByProvider(providerId),
             preferencesRepository.parentalControlLevel
-        ) { entities: List<SeriesEntity>, level: Int ->
+        ) { entities, level: Int ->
             if (level == 2) {
                 entities.filter { !it.isUserProtected }
             } else {
                 entities
             }
-        }.map { list: List<SeriesEntity> -> list.map { it.toDomain() } }
+        }.map { list -> list.map { it.toDomain() } }
 
     override fun getSeriesByCategory(providerId: Long, categoryId: Long): Flow<List<Series>> =
         flow {
@@ -73,13 +75,13 @@ class SeriesRepositoryImpl @Inject constructor(
                 combine(
                     seriesDao.getByCategory(providerId, categoryId),
                     preferencesRepository.parentalControlLevel
-                ) { entities: List<SeriesEntity>, level: Int ->
+                ) { entities, level: Int ->
                     if (level == 2) {
                         entities.filter { !it.isUserProtected }
                     } else {
                         entities
                     }
-                }.map { list: List<SeriesEntity> -> list.map { it.toDomain() } }
+                }.map { list -> list.map { it.toDomain() } }
             )
         }
 
@@ -94,13 +96,13 @@ class SeriesRepositoryImpl @Inject constructor(
             combine(
                 seriesDao.getByCategoryPage(providerId, categoryId, limit, offset),
                 preferencesRepository.parentalControlLevel
-            ) { entities: List<SeriesEntity>, level: Int ->
+            ) { entities, level: Int ->
                 if (level == 2) {
                     entities.filter { !it.isUserProtected }
                 } else {
                     entities
                 }
-            }.map { list: List<SeriesEntity> -> list.map { it.toDomain() } }
+            }.map { list -> list.map { it.toDomain() } }
         )
     }
 
@@ -111,13 +113,13 @@ class SeriesRepositoryImpl @Inject constructor(
                 combine(
                     seriesDao.getByCategoryPreview(providerId, categoryId, limit),
                     preferencesRepository.parentalControlLevel
-                ) { entities: List<SeriesEntity>, level: Int ->
+                ) { entities, level: Int ->
                     if (level == 2) {
                         entities.filter { !it.isUserProtected }
                     } else {
                         entities
                     }
-                }.map { list: List<SeriesEntity> -> list.map { it.toDomain() } }
+                }.map { list -> list.map { it.toDomain() } }
             )
         }
 
@@ -150,25 +152,25 @@ class SeriesRepositoryImpl @Inject constructor(
         combine(
             seriesDao.getTopRatedPreview(providerId, limit),
             preferencesRepository.parentalControlLevel
-        ) { entities: List<SeriesEntity>, level: Int ->
+        ) { entities, level: Int ->
             if (level == 2) {
                 entities.filter { !it.isUserProtected }
             } else {
                 entities
             }
-        }.map { list: List<SeriesEntity> -> list.map { it.toDomain() } }
+        }.map { list -> list.map { it.toDomain() } }
 
     override fun getFreshPreview(providerId: Long, limit: Int): Flow<List<Series>> =
         combine(
             seriesDao.getFreshPreview(providerId, limit),
             preferencesRepository.parentalControlLevel
-        ) { entities: List<SeriesEntity>, level: Int ->
+        ) { entities, level: Int ->
             if (level == 2) {
                 entities.filter { !it.isUserProtected }
             } else {
                 entities
             }
-        }.map { list: List<SeriesEntity> -> list.map { it.toDomain() } }
+        }.map { list -> list.map { it.toDomain() } }
 
     override fun getSeriesByIds(ids: List<Long>): Flow<List<Series>> =
         seriesDao.getByIds(ids).map { entities -> entities.map { it.toDomain() } }
@@ -199,10 +201,11 @@ class SeriesRepositoryImpl @Inject constructor(
             query.categoryId?.let { ensureXtreamCategoryLoaded(query.providerId, it) }
             emitAll(
                 combine(
-                    seriesBrowseSource(query.providerId, query.categoryId),
+                    seriesBrowseSource(query),
+                    seriesBrowseTotalCount(query),
                     favoriteDao.getAllByType(ContentType.SERIES.name),
                     playbackHistoryDao.getByProvider(query.providerId)
-                ) { series, favorites, history ->
+                ) { series, totalCount, favorites, history ->
                     val favoriteIds = favorites
                         .asSequence()
                         .filter { it.groupId == null }
@@ -235,7 +238,7 @@ class SeriesRepositoryImpl @Inject constructor(
 
                     PagedResult(
                         items = browsed.drop(query.offset).take(query.limit),
-                        totalCount = browsed.size,
+                        totalCount = totalCount,
                         offset = query.offset,
                         limit = query.limit
                     )
@@ -245,19 +248,19 @@ class SeriesRepositoryImpl @Inject constructor(
     }
 
     override fun searchSeries(providerId: Long, query: String): Flow<List<Series>> =
-        query.toFtsPrefixQuery().let { ftsQuery ->
-            if (ftsQuery.isBlank()) {
+        query.trim().takeIf { it.length >= MIN_SEARCH_QUERY_LENGTH }?.toFtsPrefixQuery().let { ftsQuery ->
+            if (ftsQuery.isNullOrBlank()) {
             flowOf(emptyList())
             } else combine(
                 seriesDao.search(providerId, ftsQuery, SEARCH_RESULT_LIMIT),
                 preferencesRepository.parentalControlLevel
-            ) { entities: List<SeriesEntity>, level: Int ->
+            ) { entities, level: Int ->
                 if (level == 2) {
                     entities.filter { !it.isUserProtected }
                 } else {
                     entities
                 }
-            }.map { list: List<SeriesEntity> ->
+            }.map { list ->
                 list.map { it.toDomain() }
                     .rankSearchResults(query) { it.name }
             }
@@ -374,11 +377,7 @@ class SeriesRepositoryImpl @Inject constructor(
             }
             is Result.Error -> {
                 val localSeries = buildSeriesWithPersistedEpisodes(seriesEntity)
-                if (localSeries.seasons.isNotEmpty()) {
-                    Result.success(localSeries)
-                } else {
-                    Result.error(remoteResult.message, remoteResult.exception)
-                }
+                Result.success(localSeries)
             }
             is Result.Loading -> Result.error("Unexpected loading state")
         }
@@ -430,12 +429,222 @@ class SeriesRepositoryImpl @Inject constructor(
         return seriesEntity.toDomain().copy(seasons = seasons)
     }
 
-    private fun seriesBrowseSource(providerId: Long, categoryId: Long?): Flow<List<Series>> =
-        if (categoryId == null) {
-            getSeries(providerId)
-        } else {
-            getSeriesByCategory(providerId, categoryId)
+    private fun seriesBrowseSource(query: LibraryBrowseQuery): Flow<List<Series>> {
+        val normalizedSearch = query.searchQuery.trim()
+        val fetchLimit = browseFetchLimit(query)
+        val fastFlow = when {
+            normalizedSearch.length >= MIN_SEARCH_QUERY_LENGTH -> {
+                val ftsQuery = normalizedSearch.toFtsPrefixQuery() ?: return flowOf(emptyList())
+                query.categoryId?.let { categoryId ->
+                    combine(
+                        seriesDao.searchByCategory(query.providerId, categoryId, ftsQuery, SEARCH_RESULT_LIMIT),
+                        preferencesRepository.parentalControlLevel
+                    ) { entities, level ->
+                        if (level == 2) entities.filter { !it.isUserProtected } else entities
+                    }.map { entities ->
+                        entities.map { it.toDomain() }
+                            .rankSearchResults(normalizedSearch) { it.name }
+                    }
+                } ?: searchSeries(query.providerId, normalizedSearch)
+            }
+            query.filterBy.type in setOf(LibraryFilterType.ALL, LibraryFilterType.TOP_RATED, LibraryFilterType.RECENTLY_UPDATED) &&
+                query.sortBy in setOf(LibrarySortBy.LIBRARY, LibrarySortBy.TITLE, LibrarySortBy.RELEASE, LibrarySortBy.UPDATED, LibrarySortBy.RATING) -> {
+                when {
+                    query.sortBy == LibrarySortBy.RATING || query.filterBy.type == LibraryFilterType.TOP_RATED -> {
+                        query.categoryId?.let { categoryId ->
+                            flow {
+                                ensureXtreamCategoryLoaded(query.providerId, categoryId)
+                                emitAll(
+                                    combine(
+                                        seriesDao.getTopRatedByCategoryPreview(query.providerId, categoryId, fetchLimit),
+                                        preferencesRepository.parentalControlLevel
+                                    ) { entities, level ->
+                                        if (level == 2) entities.filter { !it.isUserProtected } else entities
+                                    }.map { entities -> entities.map { it.toDomain() } }
+                                )
+                            }
+                        } ?: getTopRatedPreview(query.providerId, fetchLimit)
+                    }
+                    query.sortBy == LibrarySortBy.RELEASE || query.sortBy == LibrarySortBy.UPDATED || query.filterBy.type == LibraryFilterType.RECENTLY_UPDATED -> {
+                        query.categoryId?.let { categoryId ->
+                            flow {
+                                ensureXtreamCategoryLoaded(query.providerId, categoryId)
+                                emitAll(
+                                    combine(
+                                        seriesDao.getFreshByCategoryPreview(query.providerId, categoryId, fetchLimit),
+                                        preferencesRepository.parentalControlLevel
+                                    ) { entities, level ->
+                                        if (level == 2) entities.filter { !it.isUserProtected } else entities
+                                    }.map { entities -> entities.map { it.toDomain() } }
+                                )
+                            }
+                        } ?: getFreshPreview(query.providerId, fetchLimit)
+                    }
+                    else -> {
+                        query.categoryId?.let { categoryId ->
+                            flow {
+                                ensureXtreamCategoryLoaded(query.providerId, categoryId)
+                                emitAll(
+                                    combine(
+                                        seriesDao.getByCategoryPage(query.providerId, categoryId, fetchLimit, 0),
+                                        preferencesRepository.parentalControlLevel
+                                    ) { entities, level ->
+                                        if (level == 2) entities.filter { !it.isUserProtected } else entities
+                                    }.map { entities -> entities.map { it.toDomain() } }
+                                )
+                            }
+                        } ?: combine(
+                            seriesDao.getByProviderPage(query.providerId, fetchLimit, 0),
+                            preferencesRepository.parentalControlLevel
+                        ) { entities, level ->
+                            if (level == 2) entities.filter { !it.isUserProtected } else entities
+                        }.map { entities -> entities.map { it.toDomain() } }
+                    }
+                }
+            }
+            normalizedSearch.isBlank() &&
+                query.filterBy.type == LibraryFilterType.FAVORITES &&
+                query.sortBy in setOf(LibrarySortBy.LIBRARY, LibrarySortBy.TITLE) -> {
+                query.categoryId?.let { categoryId ->
+                    flow {
+                        ensureXtreamCategoryLoaded(query.providerId, categoryId)
+                        emitAll(
+                            combine(
+                                seriesDao.getFavoritesByCategoryPage(query.providerId, categoryId, fetchLimit, 0),
+                                preferencesRepository.parentalControlLevel
+                            ) { entities, level ->
+                                if (level == 2) entities.filter { !it.isUserProtected } else entities
+                            }.map { entities -> entities.map { it.toDomain() } }
+                        )
+                    }
+                } ?: combine(
+                    seriesDao.getFavoritesByProviderPage(query.providerId, fetchLimit, 0),
+                    preferencesRepository.parentalControlLevel
+                ) { entities, level ->
+                    if (level == 2) entities.filter { !it.isUserProtected } else entities
+                }.map { entities -> entities.map { it.toDomain() } }
+            }
+            normalizedSearch.isBlank() &&
+                query.filterBy.type == LibraryFilterType.IN_PROGRESS &&
+                query.sortBy in setOf(LibrarySortBy.LIBRARY, LibrarySortBy.TITLE) -> {
+                query.categoryId?.let { categoryId ->
+                    flow {
+                        ensureXtreamCategoryLoaded(query.providerId, categoryId)
+                        emitAll(
+                            combine(
+                                seriesDao.getInProgressByCategoryPage(query.providerId, categoryId, fetchLimit, 0),
+                                preferencesRepository.parentalControlLevel
+                            ) { entities, level ->
+                                if (level == 2) entities.filter { !it.isUserProtected } else entities
+                            }.map { entities -> entities.map { it.toDomain() } }
+                        )
+                    }
+                } ?: combine(
+                    seriesDao.getInProgressByProviderPage(query.providerId, fetchLimit, 0),
+                    preferencesRepository.parentalControlLevel
+                ) { entities, level ->
+                    if (level == 2) entities.filter { !it.isUserProtected } else entities
+                }.map { entities -> entities.map { it.toDomain() } }
+            }
+            normalizedSearch.isBlank() &&
+                query.filterBy.type == LibraryFilterType.UNWATCHED &&
+                query.sortBy in setOf(LibrarySortBy.LIBRARY, LibrarySortBy.TITLE) -> {
+                query.categoryId?.let { categoryId ->
+                    flow {
+                        ensureXtreamCategoryLoaded(query.providerId, categoryId)
+                        emitAll(
+                            combine(
+                                seriesDao.getUnwatchedByCategoryPage(query.providerId, categoryId, fetchLimit, 0),
+                                preferencesRepository.parentalControlLevel
+                            ) { entities, level ->
+                                if (level == 2) entities.filter { !it.isUserProtected } else entities
+                            }.map { entities -> entities.map { it.toDomain() } }
+                        )
+                    }
+                } ?: combine(
+                    seriesDao.getUnwatchedByProviderPage(query.providerId, fetchLimit, 0),
+                    preferencesRepository.parentalControlLevel
+                ) { entities, level ->
+                    if (level == 2) entities.filter { !it.isUserProtected } else entities
+                }.map { entities -> entities.map { it.toDomain() } }
+            }
+            normalizedSearch.isBlank() &&
+                query.filterBy.type == LibraryFilterType.ALL &&
+                query.sortBy == LibrarySortBy.WATCH_COUNT -> {
+                query.categoryId?.let { categoryId ->
+                    flow {
+                        ensureXtreamCategoryLoaded(query.providerId, categoryId)
+                        emitAll(
+                            combine(
+                                seriesDao.getByWatchCountCategoryPage(query.providerId, categoryId, fetchLimit, 0),
+                                preferencesRepository.parentalControlLevel
+                            ) { entities, level ->
+                                if (level == 2) entities.filter { !it.isUserProtected } else entities
+                            }.map { entities -> entities.map { it.toDomain() } }
+                        )
+                    }
+                } ?: combine(
+                    seriesDao.getByWatchCountProviderPage(query.providerId, fetchLimit, 0),
+                    preferencesRepository.parentalControlLevel
+                ) { entities, level ->
+                    if (level == 2) entities.filter { !it.isUserProtected } else entities
+                }.map { entities -> entities.map { it.toDomain() } }
+            }
+            else -> null
         }
+
+        val categoryId = query.categoryId
+        return fastFlow ?: if (categoryId == null) {
+            getSeries(query.providerId)
+        } else {
+            getSeriesByCategory(query.providerId, categoryId)
+        }
+    }
+
+    private fun seriesBrowseTotalCount(query: LibraryBrowseQuery): Flow<Int> {
+        val normalizedSearch = query.searchQuery.trim()
+        return when {
+            normalizedSearch.length >= MIN_SEARCH_QUERY_LENGTH -> seriesBrowseSource(query).map { it.size }
+            normalizedSearch.isBlank() &&
+                query.filterBy.type == LibraryFilterType.FAVORITES &&
+                query.sortBy in setOf(LibrarySortBy.LIBRARY, LibrarySortBy.TITLE) -> {
+                query.categoryId?.let { categoryId ->
+                    seriesDao.getFavoriteCountByCategory(query.providerId, categoryId)
+                } ?: seriesDao.getFavoriteCountByProvider(query.providerId)
+            }
+            normalizedSearch.isBlank() &&
+                query.filterBy.type == LibraryFilterType.IN_PROGRESS &&
+                query.sortBy in setOf(LibrarySortBy.LIBRARY, LibrarySortBy.TITLE) -> {
+                query.categoryId?.let { categoryId ->
+                    seriesDao.getInProgressCountByCategory(query.providerId, categoryId)
+                } ?: seriesDao.getInProgressCountByProvider(query.providerId)
+            }
+            normalizedSearch.isBlank() &&
+                query.filterBy.type == LibraryFilterType.UNWATCHED &&
+                query.sortBy in setOf(LibrarySortBy.LIBRARY, LibrarySortBy.TITLE) -> {
+                query.categoryId?.let { categoryId ->
+                    seriesDao.getUnwatchedCountByCategory(query.providerId, categoryId)
+                } ?: seriesDao.getUnwatchedCountByProvider(query.providerId)
+            }
+            normalizedSearch.isBlank() &&
+                query.filterBy.type == LibraryFilterType.ALL &&
+                query.sortBy == LibrarySortBy.WATCH_COUNT -> {
+                query.categoryId?.let { categoryId ->
+                    seriesDao.getCountByCategory(query.providerId, categoryId)
+                } ?: seriesDao.getCount(query.providerId)
+            }
+            query.filterBy.type in setOf(LibraryFilterType.ALL, LibraryFilterType.TOP_RATED, LibraryFilterType.RECENTLY_UPDATED) &&
+                query.sortBy in setOf(LibrarySortBy.LIBRARY, LibrarySortBy.TITLE, LibrarySortBy.RELEASE, LibrarySortBy.UPDATED, LibrarySortBy.RATING) -> {
+                query.categoryId?.let { categoryId ->
+                    seriesDao.getCountByCategory(query.providerId, categoryId)
+                } ?: seriesDao.getCount(query.providerId)
+            }
+            else -> seriesBrowseSource(query).map { it.size }
+        }
+    }
+
+    private fun browseFetchLimit(query: LibraryBrowseQuery): Int =
+        (query.offset + query.limit + BROWSE_WINDOW_BUFFER).coerceAtMost(SEARCH_RESULT_LIMIT)
 
     private fun applySeriesBrowseQuery(
         series: List<Series>,
@@ -476,7 +685,7 @@ class SeriesRepositoryImpl @Inject constructor(
     private fun seriesMatchesSearch(series: Series, searchQuery: String): Boolean {
         val normalizedQuery = searchQuery.trim().lowercase()
         if (normalizedQuery.isBlank()) return true
-        return sequenceOf(series.name, series.plot, series.genre, series.cast, series.director, series.categoryName)
+        return sequenceOf(series.name, series.genre, series.categoryName)
             .filterNotNull()
             .any { value -> value.lowercase().contains(normalizedQuery) }
     }

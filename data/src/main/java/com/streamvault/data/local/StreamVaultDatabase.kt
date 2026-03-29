@@ -20,13 +20,17 @@ import com.streamvault.data.local.entity.*
         SeriesFtsEntity::class,
         EpisodeEntity::class,
         CategoryEntity::class,
+        ChannelImportStageEntity::class,
+        MovieImportStageEntity::class,
+        SeriesImportStageEntity::class,
+        CategoryImportStageEntity::class,
         ProgramEntity::class,
         FavoriteEntity::class,
         VirtualGroupEntity::class,
         PlaybackHistoryEntity::class,
         SyncMetadataEntity::class
     ],
-    version = 19,
+    version = 23,
     exportSchema = true   // ← was false; schema JSON now tracked in version control
 )
 @TypeConverters(RoomEnumConverters::class)
@@ -38,6 +42,7 @@ abstract class StreamVaultDatabase : RoomDatabase() {
     abstract fun seriesDao(): SeriesDao
     abstract fun episodeDao(): EpisodeDao
     abstract fun categoryDao(): CategoryDao
+    abstract fun catalogSyncDao(): CatalogSyncDao
     abstract fun programDao(): ProgramDao
     abstract fun favoriteDao(): FavoriteDao
     abstract fun virtualGroupDao(): VirtualGroupDao
@@ -992,6 +997,151 @@ abstract class StreamVaultDatabase : RoomDatabase() {
         val MIGRATION_18_19 = object : Migration(18, 19) {
             override fun migrate(database: SupportSQLiteDatabase) {
                 database.execSQL("ALTER TABLE sync_metadata ADD COLUMN movie_healthy_sync_streak INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
+        val MIGRATION_19_20 = object : Migration(19, 20) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE channels ADD COLUMN sync_fingerprint TEXT NOT NULL DEFAULT ''")
+                database.execSQL("ALTER TABLE movies ADD COLUMN sync_fingerprint TEXT NOT NULL DEFAULT ''")
+                database.execSQL("ALTER TABLE series ADD COLUMN sync_fingerprint TEXT NOT NULL DEFAULT ''")
+                database.execSQL("ALTER TABLE categories ADD COLUMN sync_fingerprint TEXT NOT NULL DEFAULT ''")
+
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS channel_import_stage (
+                        session_id INTEGER NOT NULL,
+                        provider_id INTEGER NOT NULL,
+                        stream_id INTEGER NOT NULL,
+                        name TEXT NOT NULL,
+                        logo_url TEXT,
+                        group_title TEXT,
+                        category_id INTEGER,
+                        category_name TEXT,
+                        stream_url TEXT NOT NULL,
+                        epg_channel_id TEXT,
+                        number INTEGER NOT NULL,
+                        catch_up_supported INTEGER NOT NULL,
+                        catch_up_days INTEGER NOT NULL,
+                        catchUpSource TEXT,
+                        is_adult INTEGER NOT NULL,
+                        sync_fingerprint TEXT NOT NULL,
+                        PRIMARY KEY(session_id, provider_id, stream_id),
+                        FOREIGN KEY(provider_id) REFERENCES providers(id) ON DELETE CASCADE
+                    )
+                    """.trimIndent()
+                )
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_channel_import_stage_provider_id ON channel_import_stage(provider_id)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_channel_import_stage_session_id_provider_id ON channel_import_stage(session_id, provider_id)")
+
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS movie_import_stage (
+                        session_id INTEGER NOT NULL,
+                        provider_id INTEGER NOT NULL,
+                        stream_id INTEGER NOT NULL,
+                        name TEXT NOT NULL,
+                        poster_url TEXT,
+                        backdrop_url TEXT,
+                        category_id INTEGER,
+                        category_name TEXT,
+                        stream_url TEXT NOT NULL,
+                        container_extension TEXT,
+                        plot TEXT,
+                        cast TEXT,
+                        director TEXT,
+                        genre TEXT,
+                        release_date TEXT,
+                        duration TEXT,
+                        duration_seconds INTEGER NOT NULL,
+                        rating REAL NOT NULL,
+                        year TEXT,
+                        tmdb_id INTEGER,
+                        youtube_trailer TEXT,
+                        is_adult INTEGER NOT NULL,
+                        sync_fingerprint TEXT NOT NULL,
+                        PRIMARY KEY(session_id, provider_id, stream_id),
+                        FOREIGN KEY(provider_id) REFERENCES providers(id) ON DELETE CASCADE
+                    )
+                    """.trimIndent()
+                )
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_movie_import_stage_provider_id ON movie_import_stage(provider_id)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_movie_import_stage_session_id_provider_id ON movie_import_stage(session_id, provider_id)")
+
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS series_import_stage (
+                        session_id INTEGER NOT NULL,
+                        provider_id INTEGER NOT NULL,
+                        series_id INTEGER NOT NULL,
+                        name TEXT NOT NULL,
+                        poster_url TEXT,
+                        backdrop_url TEXT,
+                        category_id INTEGER,
+                        category_name TEXT,
+                        plot TEXT,
+                        cast TEXT,
+                        director TEXT,
+                        genre TEXT,
+                        release_date TEXT,
+                        rating REAL NOT NULL,
+                        tmdb_id INTEGER,
+                        youtube_trailer TEXT,
+                        episode_run_time TEXT,
+                        last_modified INTEGER NOT NULL,
+                        is_adult INTEGER NOT NULL,
+                        sync_fingerprint TEXT NOT NULL,
+                        PRIMARY KEY(session_id, provider_id, series_id),
+                        FOREIGN KEY(provider_id) REFERENCES providers(id) ON DELETE CASCADE
+                    )
+                    """.trimIndent()
+                )
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_series_import_stage_provider_id ON series_import_stage(provider_id)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_series_import_stage_session_id_provider_id ON series_import_stage(session_id, provider_id)")
+
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS category_import_stage (
+                        session_id INTEGER NOT NULL,
+                        provider_id INTEGER NOT NULL,
+                        category_id INTEGER NOT NULL,
+                        name TEXT NOT NULL,
+                        parent_id INTEGER,
+                        type TEXT NOT NULL,
+                        is_adult INTEGER NOT NULL,
+                        sync_fingerprint TEXT NOT NULL,
+                        PRIMARY KEY(session_id, provider_id, category_id, type),
+                        FOREIGN KEY(provider_id) REFERENCES providers(id) ON DELETE CASCADE
+                    )
+                    """.trimIndent()
+                )
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_category_import_stage_provider_id ON category_import_stage(provider_id)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_category_import_stage_session_id_provider_id ON category_import_stage(session_id, provider_id)")
+                database.execSQL("CREATE INDEX IF NOT EXISTS index_category_import_stage_provider_id_type ON category_import_stage(provider_id, type)")
+            }
+        }
+
+        val MIGRATION_20_21 = object : Migration(20, 21) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE sync_metadata ADD COLUMN live_avoid_full_until INTEGER NOT NULL DEFAULT 0")
+                database.execSQL("ALTER TABLE sync_metadata ADD COLUMN movie_avoid_full_until INTEGER NOT NULL DEFAULT 0")
+                database.execSQL("ALTER TABLE sync_metadata ADD COLUMN series_avoid_full_until INTEGER NOT NULL DEFAULT 0")
+                database.execSQL("ALTER TABLE sync_metadata ADD COLUMN live_sequential_failures_remembered INTEGER NOT NULL DEFAULT 0")
+                database.execSQL("ALTER TABLE sync_metadata ADD COLUMN live_healthy_sync_streak INTEGER NOT NULL DEFAULT 0")
+                database.execSQL("ALTER TABLE sync_metadata ADD COLUMN series_sequential_failures_remembered INTEGER NOT NULL DEFAULT 0")
+                database.execSQL("ALTER TABLE sync_metadata ADD COLUMN series_healthy_sync_streak INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
+        val MIGRATION_21_22 = object : Migration(21, 22) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE channel_import_stage ADD COLUMN logical_group_id TEXT NOT NULL DEFAULT ''")
+            }
+        }
+
+        val MIGRATION_22_23 = object : Migration(22, 23) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE channel_import_stage ADD COLUMN error_count INTEGER NOT NULL DEFAULT 0")
             }
         }
     }

@@ -1,6 +1,8 @@
 package com.streamvault.data.sync
 
 import com.google.common.truth.Truth.assertThat
+import com.streamvault.data.local.DatabaseTransactionRunner
+import com.streamvault.data.local.dao.CatalogSyncDao
 import com.streamvault.data.local.dao.CategoryDao
 import com.streamvault.data.local.dao.ChannelDao
 import com.streamvault.data.local.dao.MovieDao
@@ -9,8 +11,6 @@ import com.streamvault.data.local.dao.ProviderDao
 import com.streamvault.data.local.dao.SeriesDao
 import com.streamvault.data.local.entity.ProviderEntity
 import com.streamvault.data.parser.M3uParser
-import com.streamvault.data.remote.xtream.XtreamApiService
-import com.streamvault.data.remote.dto.XtreamStream
 import com.streamvault.domain.model.SyncState
 import com.streamvault.domain.model.Result
 import com.streamvault.domain.model.ProviderType
@@ -20,21 +20,24 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
+import kotlinx.serialization.json.Json
+import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
+import okhttp3.Protocol
+import okhttp3.Response
+import okhttp3.ResponseBody.Companion.toResponseBody
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
 import org.mockito.kotlin.any
-import org.mockito.kotlin.anyOrNull
 import org.mockito.kotlin.atLeast
 import org.mockito.kotlin.atLeastOnce
 import org.mockito.kotlin.argumentCaptor
 import org.mockito.kotlin.eq
 import org.mockito.kotlin.mock
-import org.mockito.kotlin.never
 import org.mockito.kotlin.verify
-import org.mockito.kotlin.whenever
 import java.util.zip.GZIPOutputStream
 
 /**
@@ -95,6 +98,44 @@ class SyncManagerTest {
         }
     }
 
+    private class FakeXtreamBackend {
+        private data class StubbedResponse(
+            val code: Int,
+            val body: String,
+            val contentType: String = "application/json"
+        )
+
+        private val stubs = mutableMapOf<String, StubbedResponse>()
+        val requestedActions = mutableListOf<String>()
+
+        fun respond(action: String, body: String, code: Int = 200) {
+            stubs[action] = StubbedResponse(code = code, body = body)
+        }
+
+        fun requestCount(): Int = requestedActions.size
+
+        fun okHttpClient(): OkHttpClient {
+            return OkHttpClient.Builder()
+                .addInterceptor { chain ->
+                    val request = chain.request()
+                    val action = request.url.queryParameter("action").orEmpty()
+                    requestedActions += action
+                    val stub = stubs[action] ?: StubbedResponse(
+                        code = 500,
+                        body = """{"error":"missing stub for $action"}"""
+                    )
+                    Response.Builder()
+                        .request(request)
+                        .protocol(Protocol.HTTP_1_1)
+                        .code(stub.code)
+                        .message(if (stub.code in 200..299) "OK" else "ERROR")
+                        .body(stub.body.toResponseBody(stub.contentType.toMediaType()))
+                        .build()
+                }
+                .build()
+        }
+    }
+
     // Mockito mocks — all return defaults (null/0/Unit), which will cause
     // the sync pipeline to throw and transition to Error state.
     private val channelDao: ChannelDao = mock()
@@ -102,9 +143,16 @@ class SyncManagerTest {
     private val seriesDao: SeriesDao = mock()
     private val programDao: ProgramDao = mock()
     private val categoryDao: CategoryDao = mock()
-    private val xtreamApi: XtreamApiService = mock()
+    private val catalogSyncDao: CatalogSyncDao = mock()
     private val epgRepo: EpgRepository = mock()
-    private val okHttp: OkHttpClient = mock()
+    private val xtreamBackend = FakeXtreamBackend()
+    private val xtreamJson = Json {
+        ignoreUnknownKeys = true
+        isLenient = true
+    }
+    private val transactionRunner = object : DatabaseTransactionRunner {
+        override suspend fun <T> inTransaction(block: suspend () -> T): T = block()
+    }
     private val syncMetadataRepo = FakeSyncMetadataRepository()
 
     private fun buildManager(
@@ -124,11 +172,13 @@ class SyncManagerTest {
         seriesDao = seriesDao,
         programDao = programDao,
         categoryDao = categoryDao,
-        xtreamApiService = xtreamApi,
+        catalogSyncDao = catalogSyncDao,
+        xtreamJson = xtreamJson,
         m3uParser = M3uParser(),
         epgRepository = epgRepo,
-        okHttpClient = okHttp,
-        syncMetadataRepository = syncMetadataRepo
+        okHttpClient = xtreamBackend.okHttpClient(),
+        syncMetadataRepository = syncMetadataRepo,
+        transactionRunner = transactionRunner
     )
 
     // ── Initial state ───────────────────────────────────────────────
@@ -136,7 +186,7 @@ class SyncManagerTest {
     @Test
     fun `initialState_isIdle`() = runTest {
         val mgr = buildManager()
-        assertThat(mgr.syncState.first()).isEqualTo(SyncState.Idle)
+        assertThat(mgr.currentSyncState(1L)).isEqualTo(SyncState.Idle)
     }
 
     // ── Provider not found ──────────────────────────────────────────
@@ -149,7 +199,7 @@ class SyncManagerTest {
 
         assertThat(result.isError).isTrue()
         // State must NOT transition away from Idle (no provider = nothing to sync)
-        assertThat(mgr.syncState.first()).isEqualTo(SyncState.Idle)
+        assertThat(mgr.currentSyncState(99L)).isEqualTo(SyncState.Idle)
     }
 
     // ── Xtream sync failure ─────────────────────────────────────────
@@ -161,8 +211,9 @@ class SyncManagerTest {
         // The Xtream path calls XtreamProvider(xtreamApi,...).getLiveCategories()
         // Since xtreamApi is a mock with null returns, the call throws → manager catches → Error
         mgr.sync(1L)
+        advanceUntilIdle()
 
-        assertThat(mgr.syncState.first()).isInstanceOf(SyncState.Error::class.java)
+        assertThat(mgr.currentSyncState(1L)).isInstanceOf(SyncState.Error::class.java)
     }
 
     @Test
@@ -173,8 +224,9 @@ class SyncManagerTest {
         // before this coroutine resumes. We verify the terminal state is Error —
         // that's only reachable via Syncing, proving the full transition happened.
         mgr.sync(1L)
+        advanceUntilIdle()
 
-        val finalState = mgr.syncState.first()
+        val finalState = mgr.currentSyncState(1L)
         assertThat(finalState).isInstanceOf(SyncState.Error::class.java)
     }
 
@@ -182,8 +234,9 @@ class SyncManagerTest {
     fun `sync_xtream_errorHasNonEmptyMessage`() = runTest {
         val mgr = buildManager(providerType = ProviderType.XTREAM_CODES)
         mgr.sync(1L)
+        advanceUntilIdle()
 
-        val state = mgr.syncState.first() as? SyncState.Error
+        val state = mgr.currentSyncState(1L) as? SyncState.Error
         assertThat(state).isNotNull()
         assertThat(state!!.message).isNotEmpty()
     }
@@ -203,10 +256,10 @@ class SyncManagerTest {
         )
 
         val result = mgr.sync(1L, force = false)
+        advanceUntilIdle()
 
         assertThat(result.isSuccess).isTrue()
-        verify(xtreamApi, never()).getLiveCategories(any())
-        verify(xtreamApi, never()).getLiveStreams(any())
+        assertThat(xtreamBackend.requestCount()).isEqualTo(0)
     }
 
     @Test
@@ -221,34 +274,35 @@ class SyncManagerTest {
                 lastEpgSync = now
             )
         )
-        whenever(xtreamApi.getVodCategories(any())).thenThrow(RuntimeException("categories unavailable"))
-        whenever(xtreamApi.getVodStreams(any())).thenReturn(
-            listOf(
-                XtreamStream(
-                    name = "Movie One",
-                    streamId = 101,
-                    categoryId = "vod-action",
-                    categoryName = "Action",
-                    containerExtension = "mp4"
-                )
-            )
+        xtreamBackend.respond(action = "get_vod_categories", body = """{"error":"categories unavailable"}""", code = 500)
+        xtreamBackend.respond(
+            action = "get_vod_streams",
+            body = """
+                [
+                  {
+                    "name": "Movie One",
+                    "stream_id": 101,
+                    "category_id": "vod-action",
+                    "category_name": "Action",
+                    "container_extension": "mp4"
+                  }
+                ]
+            """.trimIndent()
         )
 
         val result = mgr.sync(1L, force = false)
+        advanceUntilIdle()
 
         assertThat(result.isSuccess).isTrue()
-        val categoriesCaptor = argumentCaptor<List<com.streamvault.data.local.entity.CategoryEntity>>()
-        verify(categoryDao).replaceAll(eq(1L), eq("MOVIE"), categoriesCaptor.capture())
-        assertThat(categoriesCaptor.firstValue).hasSize(1)
-        assertThat(categoriesCaptor.firstValue.first().name).isEqualTo("Action")
-        assertThat(categoriesCaptor.firstValue.first().categoryId).isGreaterThan(0L)
+        val categoriesCaptor = argumentCaptor<List<com.streamvault.data.local.entity.CategoryImportStageEntity>>()
+        verify(catalogSyncDao, atLeastOnce()).insertCategoryStages(categoriesCaptor.capture())
+        val movieCategories = categoriesCaptor.allValues.flatten().filter { it.type.name == "MOVIE" }
+        assertThat(movieCategories).hasSize(1)
+        assertThat(movieCategories.first().name).isEqualTo("Action")
     }
 
     @Test
     fun `sync_m3u_fileImport_batchesAndDiscoversEpg`() = runTest {
-        whenever(channelDao.getIdMappings(1L)).thenReturn(emptyList())
-        whenever(movieDao.getIdMappings(1L)).thenReturn(emptyList())
-
         val playlist = tempFolder.newFile("playlist.m3u")
         playlist.writeText(buildString {
             append("#EXTM3U x-tvg-url=\"https://epg.example.com/guide.xml\"\n")
@@ -264,20 +318,18 @@ class SyncManagerTest {
         val mgr = buildManager(providerType = ProviderType.M3U, providerEntity = provider)
 
         val result = mgr.sync(1L, force = true)
+        advanceUntilIdle()
 
         if (result is Result.Error) {
             error(result.message)
         }
         assertThat(result.isSuccess).isTrue()
-        verify(channelDao, atLeast(3)).insertAll(any())
-        verify(movieDao, atLeastOnce()).insertAll(any())
+        verify(catalogSyncDao, atLeast(3)).insertChannelStages(any())
+        verify(catalogSyncDao, atLeastOnce()).insertMovieStages(any())
     }
 
     @Test
     fun `sync_m3u_gzipFileImport_succeeds`() = runTest {
-        whenever(channelDao.getIdMappings(1L)).thenReturn(emptyList())
-        whenever(movieDao.getIdMappings(1L)).thenReturn(emptyList())
-
         val gzFile = tempFolder.newFile("playlist.m3u.gz")
         GZIPOutputStream(gzFile.outputStream()).bufferedWriter(Charsets.UTF_8).use { writer ->
             writer.write("#EXTM3U\n")
@@ -289,19 +341,17 @@ class SyncManagerTest {
         val mgr = buildManager(providerType = ProviderType.M3U, providerEntity = provider)
 
         val result = mgr.sync(1L, force = true)
+        advanceUntilIdle()
 
         if (result is Result.Error) {
             error(result.message)
         }
         assertThat(result.isSuccess).isTrue()
-        verify(channelDao, atLeastOnce()).insertAll(any())
+        verify(catalogSyncDao, atLeastOnce()).insertChannelStages(any())
     }
 
     @Test
     fun `sync_m3u_ignores_insecure_streams_and_header_epg`() = runTest {
-        whenever(channelDao.getIdMappings(1L)).thenReturn(emptyList())
-        whenever(movieDao.getIdMappings(1L)).thenReturn(emptyList())
-
         val playlist = tempFolder.newFile("mixed-playlist.m3u")
         playlist.writeText(
             """
@@ -317,12 +367,13 @@ class SyncManagerTest {
         val mgr = buildManager(providerType = ProviderType.M3U, providerEntity = provider)
 
         val result = mgr.sync(1L, force = true)
+        advanceUntilIdle()
 
         assertThat(result.isSuccess).isTrue()
-        val state = mgr.syncState.first()
+        val state = mgr.currentSyncState(1L)
         assertThat(state).isInstanceOf(SyncState.Partial::class.java)
-        val insertedChannels = argumentCaptor<List<com.streamvault.data.local.entity.ChannelEntity>>()
-        verify(channelDao, atLeastOnce()).insertAll(insertedChannels.capture())
+        val insertedChannels = argumentCaptor<List<com.streamvault.data.local.entity.ChannelImportStageEntity>>()
+        verify(catalogSyncDao, atLeastOnce()).insertChannelStages(insertedChannels.capture())
         assertThat(insertedChannels.allValues.flatten()).hasSize(1)
         assertThat((state as SyncState.Partial).warnings).contains("Ignored insecure EPG URL from playlist header.")
     }
@@ -335,8 +386,9 @@ class SyncManagerTest {
 
         // OkHttpClient mock: newCall() returns null → NullPointerException → Error
         mgr.sync(1L)
+        advanceUntilIdle()
 
-        assertThat(mgr.syncState.first()).isInstanceOf(SyncState.Error::class.java)
+        assertThat(mgr.currentSyncState(1L)).isInstanceOf(SyncState.Error::class.java)
     }
 
     // ── Reset state ─────────────────────────────────────────────────
@@ -345,12 +397,14 @@ class SyncManagerTest {
     fun `resetState_afterError_returnsToIdle`() = runTest {
         val mgr = buildManager()
         mgr.sync(1L) // fails → Error
+        advanceUntilIdle()
 
-        assertThat(mgr.syncState.first()).isInstanceOf(SyncState.Error::class.java)
+        assertThat(mgr.currentSyncState(1L)).isInstanceOf(SyncState.Error::class.java)
 
         mgr.resetState()
+        advanceUntilIdle()
 
-        assertThat(mgr.syncState.first()).isEqualTo(SyncState.Idle)
+        assertThat(mgr.currentSyncState(1L)).isEqualTo(SyncState.Idle)
     }
 
     @Test
@@ -359,7 +413,7 @@ class SyncManagerTest {
 
         mgr.resetState() // should be a no-op
 
-        assertThat(mgr.syncState.first()).isEqualTo(SyncState.Idle)
+        assertThat(mgr.currentSyncState(1L)).isEqualTo(SyncState.Idle)
     }
 
     // ── isVodEntry (SyncManager is the canonical source) ───────────

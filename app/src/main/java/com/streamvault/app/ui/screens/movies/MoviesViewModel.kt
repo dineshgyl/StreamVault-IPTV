@@ -80,6 +80,8 @@ class MoviesViewModel @Inject constructor(
 ) : ViewModel() {
     private companion object {
         const val UNCATEGORIZED = "Uncategorized"
+        const val MIN_SEARCH_QUERY_LENGTH = 2
+        const val FAVORITE_ID_FETCH_BUFFER = 80
     }
 
     private val _uiState = MutableStateFlow(MoviesUiState())
@@ -145,6 +147,14 @@ class MoviesViewModel @Inject constructor(
                         emit(
                             if (params.query.isBlank()) {
                                 buildPreviewCatalog(params)
+                            } else if (params.query.length < MIN_SEARCH_QUERY_LENGTH) {
+                                buildSearchCatalog(
+                                    movies = emptyList(),
+                                    allFavorites = params.allFavorites,
+                                    customCategories = params.customCategories,
+                                    providerCategories = params.providerCategories,
+                                    hiddenCategoryIds = params.hiddenCategoryIds
+                                ).copy(libraryCount = 0)
                             } else {
                                 val searchResults = movieRepository.searchMovies(params.providerId, params.query).first()
                                 buildSearchCatalog(
@@ -842,6 +852,9 @@ class MoviesViewModel @Inject constructor(
         if (request.selectedCategory.isNullOrBlank()) {
             return SelectedMovieCategorySnapshot()
         }
+        if (request.query.isNotBlank() && request.query.length < MIN_SEARCH_QUERY_LENGTH) {
+            return SelectedMovieCategorySnapshot()
+        }
 
         val globalFavoriteIds = request.allFavorites
             .asSequence()
@@ -851,15 +864,19 @@ class MoviesViewModel @Inject constructor(
 
         val (selectedItems, totalCount) = when (request.selectedCategory) {
             VodBrowseDefaults.FULL_LIBRARY_CATEGORY -> {
-                val filteredItems = applyLocalBrowseToMovies(
-                    movieRepository.getMovies(request.providerId)
-                        .first()
-                        .filterNot { movie -> movie.categoryId in request.hiddenCategoryIds },
-                    request.filterType,
-                    request.sortBy,
-                    request.query
-                )
-                filteredItems.take(request.loadLimit) to filteredItems.size
+                val result = movieRepository
+                    .browseMovies(
+                        LibraryBrowseQuery(
+                            providerId = request.providerId,
+                            sortBy = request.sortBy,
+                            filterBy = LibraryFilterBy(type = request.filterType),
+                            searchQuery = request.query,
+                            limit = request.loadLimit,
+                            offset = 0
+                        )
+                    )
+                    .first()
+                result.items.filterNot { movie -> movie.categoryId in request.hiddenCategoryIds } to result.totalCount
             }
             VodBrowseDefaults.FAVORITES_CATEGORY -> {
                 val ids = request.allFavorites
@@ -868,12 +885,17 @@ class MoviesViewModel @Inject constructor(
                     .sortedBy { it.position }
                     .map { it.contentId }
                     .toList()
+                val fetchIds = if (request.query.isBlank() && request.filterType == LibraryFilterType.ALL && request.sortBy == LibrarySortBy.LIBRARY) {
+                    ids.take(request.loadLimit + FAVORITE_ID_FETCH_BUFFER)
+                } else {
+                    ids
+                }
                 val items = if (ids.isEmpty()) {
                     emptyList()
                 } else {
-                    movieRepository.getMoviesByIds(ids).first()
+                    movieRepository.getMoviesByIds(fetchIds).first()
                         .filterNot { movie -> movie.categoryId in request.hiddenCategoryIds }
-                        .orderByIds(ids)
+                        .orderByIds(fetchIds)
                 }
                 val filteredItems = applyLocalBrowseToMovies(
                     items,
@@ -881,7 +903,7 @@ class MoviesViewModel @Inject constructor(
                     request.sortBy,
                     request.query
                 )
-                filteredItems.take(request.loadLimit) to filteredItems.size
+                filteredItems.take(request.loadLimit) to if (fetchIds === ids) filteredItems.size else ids.size
             }
             else -> {
                 val customCategory = request.customCategories.firstOrNull { it.name == request.selectedCategory }
@@ -892,12 +914,17 @@ class MoviesViewModel @Inject constructor(
                         .sortedBy { it.position }
                         .map { it.contentId }
                         .toList()
+                    val fetchIds = if (request.query.isBlank() && request.filterType == LibraryFilterType.ALL && request.sortBy == LibrarySortBy.LIBRARY) {
+                        ids.take(request.loadLimit + FAVORITE_ID_FETCH_BUFFER)
+                    } else {
+                        ids
+                    }
                     val items = if (ids.isEmpty()) {
                         emptyList()
                     } else {
-                        movieRepository.getMoviesByIds(ids).first()
+                        movieRepository.getMoviesByIds(fetchIds).first()
                             .filterNot { movie -> movie.categoryId in request.hiddenCategoryIds }
-                            .orderByIds(ids)
+                            .orderByIds(fetchIds)
                     }
                     val filteredItems = applyLocalBrowseToMovies(
                         items,
@@ -905,7 +932,7 @@ class MoviesViewModel @Inject constructor(
                         request.sortBy,
                         request.query
                     )
-                    filteredItems.take(request.loadLimit) to filteredItems.size
+                    filteredItems.take(request.loadLimit) to if (fetchIds === ids) filteredItems.size else ids.size
                 } else {
                     val providerCategory = request.providerCategories.firstOrNull { it.name == request.selectedCategory }
                     if (providerCategory != null) {

@@ -7,6 +7,7 @@ import com.streamvault.domain.model.Provider
 import com.streamvault.domain.model.ProviderType
 import com.streamvault.domain.model.Series
 import com.streamvault.data.preferences.PreferencesRepository
+import com.streamvault.domain.manager.ParentalControlManager
 import com.streamvault.domain.repository.ProviderRepository
 import com.streamvault.domain.usecase.SearchContent
 import com.streamvault.domain.usecase.SearchContentResult
@@ -32,6 +33,7 @@ class SearchViewModelTest {
     private val providerRepository: ProviderRepository = mock()
     private val searchContent: SearchContent = mock()
     private val preferencesRepository: PreferencesRepository = mock()
+    private val parentalControlManager: ParentalControlManager = mock()
 
     private lateinit var viewModel: SearchViewModel
 
@@ -41,12 +43,14 @@ class SearchViewModelTest {
         whenever(providerRepository.getActiveProvider()).thenReturn(flowOf(null))
         whenever(preferencesRepository.parentalControlLevel).thenReturn(flowOf(0))
         whenever(preferencesRepository.recentSearchQueries).thenReturn(flowOf(emptyList()))
+        whenever(parentalControlManager.unlockedCategoriesForProvider(any())).thenReturn(flowOf(emptySet()))
         whenever(searchContent.invoke(any(), any(), any(), any())).thenReturn(flowOf(SearchContentResult()))
 
         viewModel = SearchViewModel(
             providerRepository,
             searchContent,
-            preferencesRepository
+            preferencesRepository,
+            parentalControlManager
         )
     }
 
@@ -108,7 +112,8 @@ class SearchViewModelTest {
         viewModel = SearchViewModel(
             providerRepository,
             searchContent,
-            preferencesRepository
+            preferencesRepository,
+            parentalControlManager
         )
 
         val collectorJob = backgroundScope.launch { viewModel.uiState.collect { } }
@@ -148,7 +153,8 @@ class SearchViewModelTest {
         viewModel = SearchViewModel(
             providerRepository,
             searchContent,
-            preferencesRepository
+            preferencesRepository,
+            parentalControlManager
         )
 
         val collectorJob = backgroundScope.launch { viewModel.uiState.collect { } }

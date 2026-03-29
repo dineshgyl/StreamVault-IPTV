@@ -81,6 +81,8 @@ private enum class FocusRestoreTarget {
     CHANNEL
 }
 
+private const val HOME_CATEGORY_SEARCH_RESULT_LIMIT = 250
+
 @Composable
 private fun HomeLoadingPane(
     message: String,
@@ -267,7 +269,10 @@ fun HomeScreen(
 
     if (uiState.selectedCategoryForOptions != null) {
         val category = uiState.selectedCategoryForOptions!!
-        val isCategoryLocked = (category.isAdult || category.isUserProtected) && uiState.parentalControlLevel == 1
+        val isCategoryLocked =
+            (category.isAdult || category.isUserProtected) &&
+                uiState.parentalControlLevel == 1 &&
+                kotlin.math.abs(category.id) !in uiState.unlockedCategoryIds
         CategoryOptionsDialog(
             category = category,
             onDismissRequest = { viewModel.dismissCategoryOptions() },
@@ -348,24 +353,54 @@ fun HomeScreen(
                 val categoryFocusRequesters = remember { mutableMapOf<Long, FocusRequester>() }
                 val channelFocusRequesters = remember { mutableMapOf<Long, FocusRequester>() }
                 val visibleCategories = remember(uiState.categories, uiState.categorySearchQuery) {
-                    uiState.categories.filter {
-                        uiState.categorySearchQuery.isEmpty() ||
-                            it.name.contains(uiState.categorySearchQuery, ignoreCase = true)
-                    }
+                    uiState.categories
+                        .asSequence()
+                        .filter {
+                            uiState.categorySearchQuery.isEmpty() ||
+                                it.name.contains(uiState.categorySearchQuery, ignoreCase = true)
+                        }
+                        .take(HOME_CATEGORY_SEARCH_RESULT_LIMIT)
+                        .toList()
                 }
-                val isCategoryLocked: (Category) -> Boolean = remember(uiState.parentalControlLevel) {
+                val isCategoryLocked: (Category) -> Boolean = remember(uiState.parentalControlLevel, uiState.unlockedCategoryIds) {
                     { category ->
-                        (category.isAdult || category.isUserProtected) && uiState.parentalControlLevel == 1
+                        (category.isAdult || category.isUserProtected) &&
+                            uiState.parentalControlLevel == 1 &&
+                            kotlin.math.abs(category.id) !in uiState.unlockedCategoryIds
                     }
                 }
-                val unlockedVisibleCategories = remember(visibleCategories, uiState.parentalControlLevel) {
+                val isChannelLocked: (Channel) -> Boolean = remember(
+                    uiState.parentalControlLevel,
+                    uiState.unlockedCategoryIds,
+                    uiState.selectedCategory?.id,
+                    uiState.selectedCategory?.isAdult,
+                    uiState.selectedCategory?.isUserProtected
+                ) {
+                    { channel ->
+                        val selectedCategory = uiState.selectedCategory
+                        val channelCategoryId = channel.categoryId
+                        val unlockedByChannelCategory =
+                            channelCategoryId != null && kotlin.math.abs(channelCategoryId) in uiState.unlockedCategoryIds
+                        val unlockedBySelectedCategory =
+                            selectedCategory != null && kotlin.math.abs(selectedCategory.id) in uiState.unlockedCategoryIds
+                        val unlocked = unlockedByChannelCategory || unlockedBySelectedCategory
+                        (channel.isAdult || channel.isUserProtected || (selectedCategory?.isAdult == true) || (selectedCategory?.isUserProtected == true)) &&
+                            uiState.parentalControlLevel == 1 &&
+                            !unlocked
+                    }
+                }
+                val unlockedVisibleCategories = remember(
+                    visibleCategories,
+                    uiState.parentalControlLevel,
+                    uiState.unlockedCategoryIds
+                ) {
                     visibleCategories.filterNot(isCategoryLocked)
                 }
                 var lastFocusedCategoryId by rememberSaveable { mutableStateOf<Long?>(null) }
                 var lastFocusedChannelId by rememberSaveable { mutableStateOf<Long?>(null) }
                 var preferredRestoreTarget by rememberSaveable { mutableStateOf(FocusRestoreTarget.CHANNEL.name) }
-                var shouldRestoreCategoryFocus by remember { mutableStateOf(false) }
-                var shouldRestoreChannelFocus by remember { mutableStateOf(false) }
+                var pendingRestoreTarget by remember { mutableStateOf<FocusRestoreTarget?>(null) }
+                var focusRestoreNonce by rememberSaveable { mutableStateOf(0) }
 
                 val displayedCategory = uiState.selectedCategory?.takeIf { !isCategoryLocked(it) }
                 val hasBlockedCategorySearch =
@@ -425,46 +460,61 @@ fun HomeScreen(
                         FocusRestoreTarget.valueOf(preferredRestoreTarget)
                     }.getOrDefault(FocusRestoreTarget.CHANNEL)
 
-                    shouldRestoreCategoryFocus = restoreTarget == FocusRestoreTarget.CATEGORY && canRestoreCategory
-                    shouldRestoreChannelFocus = when {
-                        restoreTarget == FocusRestoreTarget.CATEGORY -> false
-                        canRestoreChannel -> true
-                        else -> false
+                    pendingRestoreTarget = when {
+                        restoreTarget == FocusRestoreTarget.CATEGORY && canRestoreCategory -> FocusRestoreTarget.CATEGORY
+                        canRestoreChannel -> FocusRestoreTarget.CHANNEL
+                        canRestoreCategory -> FocusRestoreTarget.CATEGORY
+                        else -> null
                     }
-
-                    if (!shouldRestoreChannelFocus && !shouldRestoreCategoryFocus && canRestoreCategory) {
-                        shouldRestoreCategoryFocus = true
+                    if (pendingRestoreTarget != null) {
+                        focusRestoreNonce++
                     }
                 }
 
-                LaunchedEffect(shouldRestoreChannelFocus, uiState.filteredChannels) {
-                    if (!shouldRestoreChannelFocus) return@LaunchedEffect
+                LaunchedEffect(focusRestoreNonce, uiState.categories, uiState.filteredChannels) {
+                    val restoreTarget = pendingRestoreTarget ?: return@LaunchedEffect
                     kotlinx.coroutines.delay(80)
-                    val channelId = lastFocusedChannelId
-                    val restored = channelId != null && runCatching {
-                        channelFocusRequesters[channelId]?.requestFocus()
-                    }.isSuccess
+                    val restored = when (restoreTarget) {
+                        FocusRestoreTarget.CHANNEL -> {
+                            val channelId = lastFocusedChannelId
+                            channelId != null && runCatching {
+                                channelFocusRequesters[channelId]?.requestFocus()
+                            }.isSuccess
+                        }
+                        FocusRestoreTarget.CATEGORY -> {
+                            val categoryId = lastFocusedCategoryId
+                            categoryId != null && runCatching {
+                                categoryFocusRequesters[categoryId]?.requestFocus()
+                            }.isSuccess
+                        }
+                    }
                     if (!restored) {
-                        val fallbackId = uiState.filteredChannels.firstOrNull()?.id
-                        fallbackId?.let { runCatching { channelFocusRequesters[it]?.requestFocus() } }
+                        when (restoreTarget) {
+                            FocusRestoreTarget.CHANNEL -> {
+                                val fallbackChannelId = uiState.filteredChannels.firstOrNull()?.id
+                                if (fallbackChannelId != null) {
+                                    runCatching { channelFocusRequesters[fallbackChannelId]?.requestFocus() }
+                                } else {
+                                    val fallbackCategoryId = uiState.categories.firstOrNull()?.id
+                                    fallbackCategoryId?.let {
+                                        runCatching { categoryFocusRequesters[it]?.requestFocus() }
+                                    }
+                                }
+                            }
+                            FocusRestoreTarget.CATEGORY -> {
+                                val fallbackCategoryId = uiState.categories.firstOrNull()?.id
+                                fallbackCategoryId?.let {
+                                    runCatching { categoryFocusRequesters[it]?.requestFocus() }
+                                }
+                            }
+                        }
                     }
-                    shouldRestoreChannelFocus = false
-                }
-
-                LaunchedEffect(shouldRestoreCategoryFocus, uiState.categories) {
-                    if (!shouldRestoreCategoryFocus) return@LaunchedEffect
-                    kotlinx.coroutines.delay(80)
-                    val categoryId = lastFocusedCategoryId
-                    if (categoryId != null) {
-                        runCatching { categoryFocusRequesters[categoryId]?.requestFocus() }
-                    }
-                    shouldRestoreCategoryFocus = false
+                    pendingRestoreTarget = null
                 }
 
                 FocusRestoreHost(
                     enabled = !hasOverlay && !uiState.isLoading && uiState.categories.isNotEmpty(),
                     onRestore = {
-                        kotlinx.coroutines.delay(80)
                         val restoreTarget = runCatching {
                             FocusRestoreTarget.valueOf(preferredRestoreTarget)
                         }.getOrDefault(FocusRestoreTarget.CHANNEL)
@@ -474,27 +524,14 @@ fun HomeScreen(
                         val canRestoreCategory = lastFocusedCategoryId != null &&
                             uiState.categories.any { it.id == lastFocusedCategoryId }
 
-                        when {
-                            restoreTarget == FocusRestoreTarget.CATEGORY && canRestoreCategory -> {
-                                runCatching { categoryFocusRequesters[lastFocusedCategoryId]?.requestFocus() }
-                            }
-                            canRestoreChannel -> {
-                                val restored = runCatching {
-                                    channelFocusRequesters[lastFocusedChannelId]?.requestFocus()
-                                }.isSuccess
-                                if (!restored) {
-                                    val fallbackId = uiState.filteredChannels.firstOrNull()?.id
-                                    fallbackId?.let { runCatching { channelFocusRequesters[it]?.requestFocus() } }
-                                }
-                            }
-                            canRestoreCategory -> {
-                                runCatching { categoryFocusRequesters[lastFocusedCategoryId]?.requestFocus() }
-                            }
-                            else -> {
-                                uiState.categories.firstOrNull()?.id?.let { firstCategoryId ->
-                                    runCatching { categoryFocusRequesters[firstCategoryId]?.requestFocus() }
-                                }
-                            }
+                        pendingRestoreTarget = when {
+                            restoreTarget == FocusRestoreTarget.CATEGORY && canRestoreCategory -> FocusRestoreTarget.CATEGORY
+                            canRestoreChannel -> FocusRestoreTarget.CHANNEL
+                            canRestoreCategory -> FocusRestoreTarget.CATEGORY
+                            else -> null
+                        }
+                        if (pendingRestoreTarget != null) {
+                            focusRestoreNonce++
                         }
                     }
                 ) {
@@ -628,14 +665,16 @@ fun HomeScreen(
                                             ?: uiState.filteredChannels.first().id
                                         lastFocusedChannelId = preferredChannelId
                                         preferredRestoreTarget = FocusRestoreTarget.CHANNEL.name
-                                        shouldRestoreChannelFocus = true
+                                        pendingRestoreTarget = FocusRestoreTarget.CHANNEL
+                                        focusRestoreNonce++
                                         scope.launch {
                                             kotlinx.coroutines.delay(60)
                                             val focused = runCatching {
                                                 channelFocusRequesters[preferredChannelId]?.requestFocus()
                                             }.getOrNull() != null
                                             if (!focused) {
-                                                shouldRestoreChannelFocus = true
+                                                pendingRestoreTarget = FocusRestoreTarget.CHANNEL
+                                                focusRestoreNonce++
                                             }
                                         }
                                     } else {
@@ -884,8 +923,7 @@ fun HomeScreen(
                                     items = uiState.filteredChannels,
                                     key = { it.id }
                                 ) { channel ->
-                                    val isLocked = (channel.isAdult || channel.isUserProtected || (uiState.selectedCategory?.isUserProtected
-                                        ?: false)) && uiState.parentalControlLevel == 1
+                                    val isLocked = isChannelLocked(channel)
                                     val isDraggingThis = draggingChannel == channel
                                     val channelFocusRequester = channelFocusRequesters.getOrPut(channel.id) { FocusRequester() }
 

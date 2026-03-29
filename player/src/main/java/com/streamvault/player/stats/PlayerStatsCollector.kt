@@ -5,22 +5,28 @@ import androidx.media3.exoplayer.ExoPlayer
 import com.streamvault.domain.model.VideoFormat
 import com.streamvault.player.PlayerStats
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class PlayerStatsCollector(
-    private val scope: CoroutineScope,
+    private val scopeProvider: () -> CoroutineScope,
     private val currentPosition: MutableStateFlow<Long>,
     private val duration: MutableStateFlow<Long>,
     private val videoFormat: MutableStateFlow<VideoFormat>,
     private val playerStats: MutableStateFlow<PlayerStats>
 ) {
-    private var positionJob: Job? = null
-    private var bufferedJob: Job? = null
-    private var statsJob: Job? = null
+    private data class PlayerSnapshot(
+        val currentPosition: Long,
+        val duration: Long,
+        val bufferedDurationMs: Long?
+    )
+
+    private var pollingJob: Job? = null
     private var playerProvider: (() -> ExoPlayer?)? = null
     private var lastVideoFormat: Format? = null
     private var lastAudioFormat: Format? = null
@@ -69,58 +75,77 @@ class PlayerStatsCollector(
 
     fun start() {
         stop()
-        positionJob = scope.launch {
+        pollingJob = scopeProvider().launch(Dispatchers.Default) {
+            var bufferedUpdateElapsedMs = BUFFERED_UPDATE_INTERVAL_MS
+            var statsUpdateElapsedMs = STATS_UPDATE_INTERVAL_MS
             while (isActive) {
-                playerProvider?.invoke()?.let { player ->
-                    currentPosition.value = player.currentPosition
-                    duration.value = player.duration.coerceAtLeast(0L)
+                val shouldUpdateBuffered = bufferedUpdateElapsedMs >= BUFFERED_UPDATE_INTERVAL_MS
+                val shouldUpdateStats = statsUpdateElapsedMs >= STATS_UPDATE_INTERVAL_MS
+                val snapshot = readPlayerSnapshot(shouldUpdateBuffered)
+
+                if (snapshot != null) {
+                    currentPosition.value = snapshot.currentPosition
+                    duration.value = snapshot.duration
+
+                    snapshot.bufferedDurationMs?.let { bufferedDuration ->
+                        playerStats.value = playerStats.value.copy(bufferedDurationMs = bufferedDuration)
+                        bufferedUpdateElapsedMs = 0L
+                    }
+
+                    if (shouldUpdateStats) {
+                        val video = lastVideoFormat
+                        val audio = lastAudioFormat
+                        videoFormat.value = VideoFormat(
+                            width = video?.width?.takeIf { it > 0 } ?: 0,
+                            height = video?.height?.takeIf { it > 0 } ?: 0,
+                            frameRate = lastFrameRate,
+                            bitrate = video?.bitrate?.takeIf { it > 0 } ?: 0,
+                            codecV = video?.sampleMimeType ?: video?.codecs,
+                            codecA = audio?.sampleMimeType ?: audio?.codecs
+                        )
+                        playerStats.value = playerStats.value.copy(
+                            videoCodec = video?.sampleMimeType ?: video?.codecs ?: playerStats.value.videoCodec,
+                            audioCodec = audio?.sampleMimeType ?: audio?.codecs ?: playerStats.value.audioCodec,
+                            videoBitrate = video?.bitrate?.takeIf { it > 0 } ?: playerStats.value.videoBitrate,
+                            droppedFrames = droppedFrames,
+                            width = video?.width?.takeIf { it > 0 } ?: playerStats.value.width,
+                            height = video?.height?.takeIf { it > 0 } ?: playerStats.value.height,
+                            bandwidthEstimate = lastBandwidthEstimate
+                        )
+                        statsUpdateElapsedMs = 0L
+                    }
                 }
-                delay(250L)
+                delay(POSITION_UPDATE_INTERVAL_MS)
+                bufferedUpdateElapsedMs += POSITION_UPDATE_INTERVAL_MS
+                statsUpdateElapsedMs += POSITION_UPDATE_INTERVAL_MS
             }
         }
-        bufferedJob = scope.launch {
-            while (isActive) {
-                playerProvider?.invoke()?.let { player ->
-                    val bufferedDuration = (player.bufferedPosition - player.currentPosition).coerceAtLeast(0L)
-                    playerStats.value = playerStats.value.copy(bufferedDurationMs = bufferedDuration)
-                }
-                delay(500L)
-            }
-        }
-        statsJob = scope.launch {
-            while (isActive) {
-                playerProvider?.invoke()?.let { player ->
-                    val video = lastVideoFormat
-                    val audio = lastAudioFormat
-                    videoFormat.value = VideoFormat(
-                        width = video?.width?.takeIf { it > 0 } ?: 0,
-                        height = video?.height?.takeIf { it > 0 } ?: 0,
-                        frameRate = lastFrameRate,
-                        bitrate = video?.bitrate?.takeIf { it > 0 } ?: 0,
-                        codecV = video?.sampleMimeType ?: video?.codecs,
-                        codecA = audio?.sampleMimeType ?: audio?.codecs
-                    )
-                    playerStats.value = playerStats.value.copy(
-                        videoCodec = video?.sampleMimeType ?: video?.codecs ?: playerStats.value.videoCodec,
-                        audioCodec = audio?.sampleMimeType ?: audio?.codecs ?: playerStats.value.audioCodec,
-                        videoBitrate = video?.bitrate?.takeIf { it > 0 } ?: playerStats.value.videoBitrate,
-                        droppedFrames = droppedFrames,
-                        width = video?.width?.takeIf { it > 0 } ?: playerStats.value.width,
-                        height = video?.height?.takeIf { it > 0 } ?: playerStats.value.height,
-                        bandwidthEstimate = lastBandwidthEstimate
-                    )
-                }
-                delay(1000L)
+    }
+
+    private suspend fun readPlayerSnapshot(includeBufferedDuration: Boolean): PlayerSnapshot? {
+        return withContext(Dispatchers.Main.immediate) {
+            playerProvider?.invoke()?.let { player ->
+                PlayerSnapshot(
+                    currentPosition = player.currentPosition,
+                    duration = player.duration.coerceAtLeast(0L),
+                    bufferedDurationMs = if (includeBufferedDuration) {
+                        (player.bufferedPosition - player.currentPosition).coerceAtLeast(0L)
+                    } else {
+                        null
+                    }
+                )
             }
         }
     }
 
     fun stop() {
-        positionJob?.cancel()
-        bufferedJob?.cancel()
-        statsJob?.cancel()
-        positionJob = null
-        bufferedJob = null
-        statsJob = null
+        pollingJob?.cancel()
+        pollingJob = null
+    }
+
+    private companion object {
+        private const val POSITION_UPDATE_INTERVAL_MS = 250L
+        private const val BUFFERED_UPDATE_INTERVAL_MS = 500L
+        private const val STATS_UPDATE_INTERVAL_MS = 1000L
     }
 }

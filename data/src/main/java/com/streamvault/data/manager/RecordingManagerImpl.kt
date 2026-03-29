@@ -338,7 +338,9 @@ class RecordingManagerImpl @Inject constructor(
         if (!stateFile.exists()) return emptyList()
         return runCatching {
             val listType = object : TypeToken<List<RecordingItem>>() {}.type
-            gson.fromJson<List<RecordingItem>>(FileInputStream(stateFile).bufferedReader(), listType).orEmpty()
+            FileInputStream(stateFile).bufferedReader().use { reader ->
+                gson.fromJson<List<RecordingItem>>(reader, listType).orEmpty()
+            }
         }.getOrDefault(emptyList())
     }
 

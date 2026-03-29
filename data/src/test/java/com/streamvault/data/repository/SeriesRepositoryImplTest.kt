@@ -12,6 +12,7 @@ import com.streamvault.data.local.entity.ProviderEntity
 import com.streamvault.data.preferences.PreferencesRepository
 import com.streamvault.data.remote.dto.XtreamCategory
 import com.streamvault.data.remote.dto.XtreamSeriesItem
+import com.streamvault.data.remote.xtream.XtreamParsingException
 import com.streamvault.data.remote.xtream.XtreamApiService
 import com.streamvault.data.remote.xtream.XtreamStreamUrlResolver
 import com.streamvault.domain.model.ProviderStatus
@@ -109,6 +110,42 @@ class SeriesRepositoryImplTest {
         val series = (result as com.streamvault.domain.model.Result.Success).data
         assertThat(series.id).isEqualTo(15L)
         assertThat(series.seriesId).isEqualTo(301L)
+    }
+
+    @Test
+    fun `getSeriesDetails returns local series when xtream details fail`() = runTest {
+        val seriesEntity = SeriesEntity(
+            id = 15L,
+            seriesId = 301L,
+            name = "Stored Series",
+            posterUrl = "https://img.example.test/poster.jpg",
+            providerId = 7L
+        )
+        whenever(seriesDao.getById(301L)).thenReturn(null)
+        whenever(seriesDao.getBySeriesId(7L, 301L)).thenReturn(seriesEntity)
+        whenever(providerDao.getById(7L)).thenReturn(
+            ProviderEntity(
+                id = 7L,
+                name = "Xtream",
+                type = ProviderType.XTREAM_CODES,
+                serverUrl = "http://example.com",
+                username = "user",
+                password = "pass",
+                status = ProviderStatus.ACTIVE
+            )
+        )
+        whenever(episodeDao.getBySeriesSync(15L)).thenReturn(emptyList())
+        whenever(xtreamApiService.getSeriesInfo(any())).thenThrow(RuntimeException("bad response"))
+
+        val repository = createRepository()
+
+        val result = repository.getSeriesDetails(7L, 301L)
+
+        assertThat(result).isInstanceOf(com.streamvault.domain.model.Result.Success::class.java)
+        val series = (result as com.streamvault.domain.model.Result.Success).data
+        assertThat(series.id).isEqualTo(15L)
+        assertThat(series.name).isEqualTo("Stored Series")
+        assertThat(series.posterUrl).isEqualTo("https://img.example.test/poster.jpg")
     }
 
     private fun createRepository() = SeriesRepositoryImpl(

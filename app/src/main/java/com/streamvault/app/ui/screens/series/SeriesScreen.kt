@@ -356,6 +356,14 @@ private fun SeriesVodContent(
                 kotlin.math.abs(category.id) !in uiState.unlockedCategoryIds
         }
     }
+    val isSeriesLocked = remember(uiState.parentalControlLevel, uiState.unlockedCategoryIds) {
+        { series: Series ->
+            val categoryId = series.categoryId
+            (series.isAdult || series.isUserProtected) &&
+                uiState.parentalControlLevel == 1 &&
+                (categoryId == null || kotlin.math.abs(categoryId) !in uiState.unlockedCategoryIds)
+        }
+    }
     val openProtectedCategory: (Category) -> Unit = onProtectedCategoryClick
     val visibleCategoryNames = remember(uiState.categoryNames, categoryByName, uiState.parentalControlLevel, uiState.unlockedCategoryIds) {
         uiState.categoryNames.filter { name ->
@@ -428,7 +436,7 @@ private fun SeriesVodContent(
                             ?: stringResource(R.string.series_library_lens_subtitle),
                         actionLabel = stringResource(R.string.player_resume).substringBefore(" "),
                         onClick = {
-                            val isLocked = (heroSeries.isAdult || heroSeries.isUserProtected) && uiState.parentalControlLevel == 1
+                            val isLocked = isSeriesLocked(heroSeries)
                             if (isLocked) onProtectedSeriesClick(heroSeries.id) else onSeriesClick(heroSeries.id)
                         },
                         modifier = Modifier.padding(top = 8.dp, bottom = 6.dp)
@@ -517,7 +525,7 @@ private fun SeriesVodContent(
                         onSeeAll = { onSelectCategory(uiState.favoriteCategoryName) },
                         keySelector = { it.id }
                     ) { series ->
-                        val isLocked = (series.isAdult || series.isUserProtected) && uiState.parentalControlLevel == 1
+                        val isLocked = isSeriesLocked(series)
                         SeriesCard(
                             series = series,
                             isLocked = isLocked,
@@ -537,7 +545,7 @@ private fun SeriesVodContent(
                         onSeeAll = null,
                         keySelector = { it.id }
                     ) { series ->
-                        val isLocked = (series.isAdult || series.isUserProtected) && uiState.parentalControlLevel == 1
+                        val isLocked = isSeriesLocked(series)
                         SeriesCard(
                             series = series,
                             isLocked = isLocked,
@@ -556,7 +564,7 @@ private fun SeriesVodContent(
                         onSeeAll = null,
                         keySelector = { it.id }
                     ) { series ->
-                        val isLocked = (series.isAdult || series.isUserProtected) && uiState.parentalControlLevel == 1
+                        val isLocked = isSeriesLocked(series)
                         SeriesCard(
                             series = series,
                             isLocked = isLocked,
@@ -583,7 +591,7 @@ private fun SeriesVodContent(
                     },
                     keySelector = { it.id }
                 ) { series ->
-                    val isLocked = (series.isAdult || series.isUserProtected) && uiState.parentalControlLevel == 1
+                    val isLocked = isSeriesLocked(series)
                     SeriesCard(
                         series = series,
                         isLocked = isLocked,
@@ -730,7 +738,7 @@ private fun SeriesVodContent(
             }
         } else {
             gridItems(filteredGridSeries, key = { it.id }) { series ->
-                val isLocked = (series.isAdult || series.isUserProtected) && uiState.parentalControlLevel == 1
+                val isLocked = isSeriesLocked(series)
                 val isDraggingThis = draggingSeries == series
                 SeriesCard(
                     series = series,
@@ -820,6 +828,14 @@ private fun SeriesVodClassicContent(
             (category.isAdult || category.isUserProtected) &&
                 uiState.parentalControlLevel >= 2 &&
                 kotlin.math.abs(category.id) !in uiState.unlockedCategoryIds
+        }
+    }
+    val isSeriesLocked = remember(uiState.parentalControlLevel, uiState.unlockedCategoryIds) {
+        { series: Series ->
+            val categoryId = series.categoryId
+            (series.isAdult || series.isUserProtected) &&
+                uiState.parentalControlLevel == 1 &&
+                (categoryId == null || kotlin.math.abs(categoryId) !in uiState.unlockedCategoryIds)
         }
     }
     val openProtectedCategory: (Category) -> Unit = onProtectedCategoryClick
@@ -1036,7 +1052,7 @@ private fun SeriesVodClassicContent(
                     }
                 } else {
                     gridItems(filteredGridSeries, key = { it.id }) { series ->
-                        val isLocked = (series.isAdult || series.isUserProtected) && uiState.parentalControlLevel == 1
+                        val isLocked = isSeriesLocked(series)
                         val isDraggingThis = draggingSeries == series
                         SeriesCard(
                             series = series,

@@ -18,12 +18,18 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.stateIn
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -58,6 +64,21 @@ import com.streamvault.domain.model.Episode
 import com.streamvault.domain.model.Movie
 import com.streamvault.domain.model.Series
 
+private object LiveChannelRowTicker {
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+
+    val nowMs = flow {
+        while (true) {
+            emit(System.currentTimeMillis())
+            delay(30_000L)
+        }
+    }.stateIn(
+        scope = scope,
+        started = SharingStarted.WhileSubscribed(stopTimeoutMillis = 30_000L),
+        initialValue = System.currentTimeMillis()
+    )
+}
+
 @Composable
 fun LiveChannelRowCard(
     channel: Channel,
@@ -72,13 +93,7 @@ fun LiveChannelRowCard(
     val logoPadding = if (isDense) 5.dp else if (isUltraCompact) 6.dp else 8.dp
     val contentSpacing = if (isUltraCompact) 8.dp else 10.dp
     val badgeSpacing = if (isUltraCompact) 3.dp else 4.dp
-    // Ticks every 30s so EPG progress bars stay accurate without busy-looping
-    val nowMs by produceState(initialValue = System.currentTimeMillis()) {
-        while (true) {
-            delay(30_000L)
-            value = System.currentTimeMillis()
-        }
-    }
+    val nowMs by LiveChannelRowTicker.nowMs.collectAsState()
 
     Box(
         modifier = modifier

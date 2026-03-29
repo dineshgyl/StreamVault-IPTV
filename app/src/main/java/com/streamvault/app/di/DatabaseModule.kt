@@ -43,7 +43,11 @@ object DatabaseModule {
                 StreamVaultDatabase.MIGRATION_15_16,
                 StreamVaultDatabase.MIGRATION_16_17,
                 StreamVaultDatabase.MIGRATION_17_18,
-                StreamVaultDatabase.MIGRATION_18_19
+                StreamVaultDatabase.MIGRATION_18_19,
+                StreamVaultDatabase.MIGRATION_19_20,
+                StreamVaultDatabase.MIGRATION_20_21,
+                StreamVaultDatabase.MIGRATION_21_22,
+                StreamVaultDatabase.MIGRATION_22_23
             )
             // NOTE: fallbackToDestructiveMigration() intentionally removed.
             // All future schema changes MUST add a corresponding Migration in StreamVaultDatabase.
@@ -56,6 +60,7 @@ object DatabaseModule {
     @Provides fun provideSeriesDao(db: StreamVaultDatabase): SeriesDao = db.seriesDao()
     @Provides fun provideEpisodeDao(db: StreamVaultDatabase): EpisodeDao = db.episodeDao()
     @Provides fun provideCategoryDao(db: StreamVaultDatabase): CategoryDao = db.categoryDao()
+    @Provides fun provideCatalogSyncDao(db: StreamVaultDatabase): CatalogSyncDao = db.catalogSyncDao()
     @Provides fun provideProgramDao(db: StreamVaultDatabase): ProgramDao = db.programDao()
     @Provides fun provideFavoriteDao(db: StreamVaultDatabase): FavoriteDao = db.favoriteDao()
     @Provides fun provideVirtualGroupDao(db: StreamVaultDatabase): VirtualGroupDao = db.virtualGroupDao()

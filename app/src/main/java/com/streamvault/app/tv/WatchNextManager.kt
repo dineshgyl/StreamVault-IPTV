@@ -98,6 +98,7 @@ class WatchNextManager @Inject constructor(
 
         return ContentValues().apply {
             put(COLUMN_INTERNAL_PROVIDER_ID, watchNextKey(history))
+            put(COLUMN_TYPE, watchNextProgramType(history.contentType))
             put(COLUMN_TITLE, history.title)
             put(COLUMN_DESCRIPTION, context.getString(R.string.saved_preset_watch_next))
             put(COLUMN_POSTER_ART_URI, artworkUriFor(history).toString())
@@ -107,6 +108,13 @@ class WatchNextManager @Inject constructor(
             put(COLUMN_LAST_ENGAGEMENT_TIME_UTC_MILLIS, history.lastWatchedAt)
             put(COLUMN_WATCH_NEXT_TYPE, TvContract.WatchNextPrograms.WATCH_NEXT_TYPE_CONTINUE)
         }
+    }
+
+    private fun watchNextProgramType(contentType: ContentType): Int = when (contentType) {
+        ContentType.MOVIE -> TvContract.PreviewPrograms.TYPE_MOVIE
+        ContentType.SERIES,
+        ContentType.SERIES_EPISODE -> TvContract.PreviewPrograms.TYPE_TV_EPISODE
+        ContentType.LIVE -> TvContract.PreviewPrograms.TYPE_CLIP
     }
 
     private fun artworkUriFor(history: PlaybackHistory): Uri {
@@ -144,6 +152,7 @@ class WatchNextManager @Inject constructor(
         const val MAX_WATCH_NEXT_ITEMS = 12
         const val WATCH_NEXT_COMPLETION_THRESHOLD = 0.95f
         const val COLUMN_INTERNAL_PROVIDER_ID = "internal_provider_id"
+        const val COLUMN_TYPE = "type"
         const val COLUMN_TITLE = "title"
         const val COLUMN_DESCRIPTION = "description"
         const val COLUMN_POSTER_ART_URI = "poster_art_uri"

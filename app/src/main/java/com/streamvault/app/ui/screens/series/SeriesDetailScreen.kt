@@ -52,6 +52,7 @@ import com.streamvault.app.ui.components.shell.ContentMetadataStrip
 import com.streamvault.app.ui.components.shell.EpisodeRowCard
 import com.streamvault.app.ui.components.shell.StatusPill
 import com.streamvault.app.ui.design.AppColors
+import com.streamvault.app.ui.model.formatVodRatingLabel
 import com.streamvault.domain.model.Episode
 import com.streamvault.domain.model.Season
 import com.streamvault.domain.model.Series
@@ -201,7 +202,7 @@ private fun SeriesDetailContent(
                                 StatusPill(label = stringResource(R.string.nav_series), containerColor = AppColors.BrandMuted)
                                 series.rating.takeIf { it > 0f }?.let {
                                     StatusPill(
-                                        label = stringResource(R.string.label_rating, String.format("%.1f", it)),
+                                        label = formatVodRatingLabel(it),
                                         containerColor = AppColors.Warning,
                                         contentColor = Color.Black
                                     )
@@ -264,7 +265,7 @@ private fun SeriesDetailContent(
                                 StatusPill(label = stringResource(R.string.nav_series), containerColor = AppColors.BrandMuted)
                                 series.rating.takeIf { it > 0f }?.let {
                                     StatusPill(
-                                        label = stringResource(R.string.label_rating, String.format("%.1f", it)),
+                                        label = formatVodRatingLabel(it),
                                         containerColor = AppColors.Warning,
                                         contentColor = Color.Black
                                     )

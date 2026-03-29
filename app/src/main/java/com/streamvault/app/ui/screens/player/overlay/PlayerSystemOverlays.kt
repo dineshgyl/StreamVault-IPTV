@@ -3,6 +3,7 @@ package com.streamvault.app.ui.screens.player.overlay
 import android.view.KeyEvent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,6 +24,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.onPreviewKeyEvent
@@ -434,6 +436,16 @@ fun PlayerResumePrompt(
     onStartOver: () -> Unit,
     onResume: () -> Unit
 ) {
+    val startOverFocusRequester = remember(title) { FocusRequester() }
+    val resumeFocusRequester = remember(title) { FocusRequester() }
+
+    LaunchedEffect(title) {
+        resumeFocusRequester.requestFocusSafely(
+            tag = "PlayerResumePrompt",
+            target = "Resume button"
+        )
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -444,6 +456,15 @@ fun PlayerResumePrompt(
             modifier = Modifier
                 .widthIn(max = 500.dp)
                 .background(SurfaceElevated, RoundedCornerShape(12.dp))
+                .focusGroup()
+                .onPreviewKeyEvent { event ->
+                    if (event.nativeKeyEvent.action != KeyEvent.ACTION_DOWN) return@onPreviewKeyEvent false
+                    when (event.nativeKeyEvent.keyCode) {
+                        KeyEvent.KEYCODE_DPAD_UP,
+                        KeyEvent.KEYCODE_DPAD_DOWN -> true
+                        else -> false
+                    }
+                }
                 .padding(32.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
@@ -468,7 +489,12 @@ fun PlayerResumePrompt(
                         containerColor = SurfaceElevated,
                         focusedContainerColor = SurfaceHighlight
                     ),
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier
+                        .weight(1f)
+                        .focusRequester(startOverFocusRequester)
+                        .focusProperties {
+                            right = resumeFocusRequester
+                        }
                 ) {
                     Text(
                         stringResource(R.string.player_resume_start_over),
@@ -487,7 +513,12 @@ fun PlayerResumePrompt(
                         containerColor = Primary,
                         focusedContainerColor = PrimaryLight
                     ),
-                    modifier = Modifier.weight(1f)
+                    modifier = Modifier
+                        .weight(1f)
+                        .focusRequester(resumeFocusRequester)
+                        .focusProperties {
+                            left = startOverFocusRequester
+                        }
                 ) {
                     Text(
                         stringResource(R.string.player_resume),

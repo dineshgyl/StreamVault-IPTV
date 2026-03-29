@@ -688,7 +688,7 @@ private fun PlayerLiveInfo(
         if (audioTrackCount > 0) {
             add(PlayerActionSpec(stringResource(R.string.player_audio), onOpenAudioTracks))
         }
-        if (videoQualityCount > 1) {
+        if (videoQualityCount > 0) {
             add(PlayerActionSpec(stringResource(R.string.player_video_quality), onOpenVideoTracks))
         }
         add(PlayerActionSpec(stringResource(R.string.multiview_nav), onOpenSplitScreen))
@@ -848,31 +848,31 @@ private fun PlayerVodInfo(
 
     val playbackLabel = stringResource(R.string.player_playback_label)
     val actions = buildList {
-        add(
-            PlayerActionSpec(
-                stringResource(R.string.player_playback_speed_value, formatPlaybackSpeedLabel(playbackSpeed)),
-                onOpenPlaybackSpeed
-            )
-        )
-        add(PlayerActionSpec(stringResource(R.string.player_aspect_ratio_label, aspectRatioLabel), onToggleAspectRatio))
         add(PlayerActionSpec(
             stringResource(if (isMuted) R.string.player_unmute else R.string.player_mute),
             onToggleMute
         ))
-        add(PlayerActionSpec(
-            stringResource(if (isCastConnected) R.string.player_stop_casting else R.string.player_cast),
-            if (isCastConnected) onStopCasting else onCast
-        ))
-        add(PlayerActionSpec(stringResource(R.string.player_picture_in_picture), onEnterPictureInPicture))
         if (subtitleTrackCount > 0) {
             add(PlayerActionSpec(stringResource(R.string.player_subs), onOpenSubtitleTracks))
         }
         if (audioTrackCount > 0) {
             add(PlayerActionSpec(stringResource(R.string.player_audio), onOpenAudioTracks))
         }
-        if (videoQualityCount > 1) {
+        if (videoQualityCount > 0) {
             add(PlayerActionSpec(stringResource(R.string.player_video_quality), onOpenVideoTracks))
         }
+        add(
+            PlayerActionSpec(
+                stringResource(R.string.player_playback_speed_value, formatPlaybackSpeedLabel(playbackSpeed)),
+                onOpenPlaybackSpeed
+            )
+        )
+        add(PlayerActionSpec(
+            stringResource(if (isCastConnected) R.string.player_stop_casting else R.string.player_cast),
+            if (isCastConnected) onStopCasting else onCast
+        ))
+        add(PlayerActionSpec(stringResource(R.string.player_picture_in_picture), onEnterPictureInPicture))
+        add(PlayerActionSpec(stringResource(R.string.player_aspect_ratio_label, aspectRatioLabel), onToggleAspectRatio))
     }
     var sliderValue by remember(duration, currentPosition) {
         mutableStateOf(if (duration > 0) currentPosition.toFloat() / duration.toFloat() else 0f)

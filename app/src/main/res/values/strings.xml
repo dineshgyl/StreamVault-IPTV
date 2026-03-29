@@ -1,8 +1,8 @@
-<?xml version="1.0" encoding="utf-8"?>
+<?xml version='1.0' encoding='utf-8'?>
 <resources>
     <string name="app_name">StreamVault</string>
 
-    <!-- Navigation -->
+    
     <string name="nav_home">Home</string>
     <string name="nav_live_tv">Live TV</string>
     <string name="nav_movies">Movies</string>
@@ -10,7 +10,7 @@
     <string name="nav_epg">Guide</string>
     <string name="nav_settings">Settings</string>
 
-    <!-- Welcome -->
+    
     <string name="welcome_enter_app">Enter App</string>
     <string name="welcome_manage_providers">Manage Providers</string>
     <string name="welcome_setup_provider">Setup Provider</string>
@@ -24,7 +24,7 @@
     <string name="welcome_feature_player">Unified player overlays, guide access, and saved content</string>
     <string name="welcome_manage_hint">Swap providers, refresh metadata, or add a new source.</string>
 
-    <!-- Home -->
+    
     <string name="home_incorrect_pin">Incorrect PIN</string>
     <string name="home_loading_categories">Loading categories...</string>
     <string name="home_loading_channels">Loading channels...</string>
@@ -74,7 +74,7 @@
     <string name="home_group_name_duplicate">Group \'%1$s\' already exists</string>
     <string name="home_group_name_invalid">Enter a group name</string>
 
-    <!-- Dashboard -->
+    
     <string name="dashboard_title">Your Library, Ready</string>
     <string name="dashboard_subtitle">%1$s is active. Jump back into live, catch up on progress, or browse fresh additions.</string>
     <string name="dashboard_favorite_channels">Favorite Channels</string>
@@ -106,7 +106,7 @@
     <string name="dashboard_empty_title">Set up a provider to unlock the home screen</string>
     <string name="dashboard_empty_body">Add a playlist or Xtream source first. Once a provider is active, Home will surface favorite channels, continue watching, and fresh library rows.</string>
 
-    <!-- Dialogs -->
+    
     <string name="pin_dialog_title">Enter PIN</string>
     <string name="pin_dialog_cancel">Cancel</string>
 
@@ -139,13 +139,13 @@
     <string name="card_live_badge">LIVE</string>
     <string name="card_locked">Locked</string>
 
-    <string name="category_see_all">See All →</string>
+    <string name="category_see_all">See all</string>
     <string name="continue_watching_title">Continue Watching</string>
     <string name="continue_watching_season_episode">S%1$d E%2$d</string>
 
     <string name="playlist_no_provider">No Provider</string>
 
-    <!-- Movies -->
+    
     <string name="movies_incorrect_pin">Incorrect PIN</string>
     <string name="movies_loading">Loading movies...</string>
     <string name="movies_no_found">No movies found</string>
@@ -170,7 +170,7 @@
     <string name="library_full_browse_title_movies">Browse Full Movie Library</string>
     <string name="library_full_browse_subtitle">%1$d titles available in the current provider</string>
 
-    <!-- Series -->
+    
     <string name="series_incorrect_pin">Incorrect PIN</string>
     <string name="series_loading">Loading series...</string>
     <string name="series_no_found">No series found</string>
@@ -225,7 +225,7 @@
     <string name="library_sort_updated">Recently Updated</string>
     <string name="library_sort_rating">Rating</string>
 
-    <!-- Settings -->
+    
     <string name="settings_title">Settings</string>
     <string name="settings_providers">Providers</string>
     <string name="settings_no_providers">No providers configured</string>
@@ -452,7 +452,7 @@
     <string name="settings_recording_status_completed">Completed</string>
     <string name="settings_recording_status_failed">Failed</string>
     <string name="settings_recording_status_cancelled">Cancelled</string>
-    <string name="settings_recording_time_window">%1$s → %2$s</string>
+    <string name="settings_recording_time_window">%1$s - %2$s</string>
     <string name="settings_recording_recurrence_none">One-time recording</string>
     <string name="settings_recording_recurrence_daily">Repeats daily</string>
     <string name="settings_recording_recurrence_weekly">Repeats weekly</string>
@@ -460,7 +460,7 @@
     <string name="settings_recording_cancel">Cancel</string>
     <string name="settings_recording_delete">Delete</string>
 
-    <!-- Favorites -->
+    
     <string name="favorites_title">Saved</string>
     <string name="favorites_loading">Loading saved library...</string>
     <string name="favorites_no_favorites">Saved library is empty</string>
@@ -524,12 +524,12 @@
     <string name="guide_shell_subtitle">Guide filters, schedule density, and focused program detail in one remote-first surface.</string>
     <string name="favorites_reordering">Reordering</string>
     <string name="favorites_reorder_mode">Reorder mode</string>
-    <string name="favorites_move_up">Up or Left: move earlier</string>
-    <string name="favorites_move_down">Down or Right: move later</string>
+    <string name="favorites_move_up">Move earlier</string>
+    <string name="favorites_move_down">Move later</string>
     <string name="favorites_confirm">Center: save order</string>
     <string name="favorites_cancel">Back: cancel</string>
 
-    <!-- Search -->
+    
     <string name="search_title">Search</string>
     <string name="parental_group_shell_subtitle">Review protected live, movie, and series groups without leaving the premium settings shell.</string>
     <string name="search_screen_subtitle">Find channels, movies, and series without leaving the TV flow.</string>
@@ -559,7 +559,7 @@
     <string name="a11y_now_playing">Now playing %1$s</string>
     <string name="a11y_channel_with_number">Channel %1$d, %2$s</string>
 
-    <!-- Provider Setup -->
+    
     <string name="setup_title_streamvault">StreamVault</string>
     <string name="setup_provider_title">Add a provider</string>
     <string name="setup_edit_provider">Edit Provider</string>
@@ -596,7 +596,7 @@
     <string name="setup_validating">Validating...</string>
     <string name="setup_add">Add Playlist</string>
 
-    <!-- Player -->
+    
     <string name="player_buffering">Buffering...</string>
     <string name="player_error_title">Playback Error</string>
     <string name="player_error_network">Stream unavailable — check your internet connection</string>
@@ -728,7 +728,9 @@
     <string name="epg_search_label">Program Search</string>
     <string name="epg_search_short">Program Search</string>
     <string name="epg_search_placeholder">Search titles in the current guide window...</string>
+    <string name="epg_search_apply">Search</string>
     <string name="epg_clear_search">Clear Search</string>
+    <string name="epg_clear_search_close">Clear &amp; Close</string>
     <string name="epg_time_controls">Guide Window</string>
     <string name="epg_day_selector_label">Browse by day</string>
     <string name="epg_previous_day">Prev Day</string>
@@ -824,7 +826,7 @@
     <string name="epg_provider_troubleshooting_ready">Replay metadata is present, but the provider may still reject this specific program window.</string>
     <string name="epg_provider_troubleshooting_stale">Guide freshness is low, so replay mapping may still be incomplete until the guide refreshes.</string>
 
-    <!-- Parental Control Group -->
+    
     <string name="parental_group_title">Protected Groups</string>
     <string name="parental_group_search">Search categories...</string>
     <string name="parental_group_auto_protected">Adult Category (Auto-Protected)</string>
@@ -869,7 +871,7 @@
     <string name="epg_no_data">No EPG data</string>
     <string name="epg_up_next">Up Next</string>
 
-    <!-- Multi-View / Split Screen -->
+    
     <string name="multiview_add_to_split">Add to Split Screen</string>
     <string name="multiview_queued">In Split Screen</string>
     <string name="multiview_planner_title">Split Screen Manager</string>
@@ -912,7 +914,7 @@
     <string name="multiview_thermal_critical">Critical</string>
     <string name="multiview_low_memory_warning">Memory pressure is high. Extra slots stay in standby until playback stabilizes.</string>
 
-    <!-- Privacy -->
+    
     <string name="settings_privacy">Privacy</string>
     <string name="settings_privacy_subtitle">Manage watch history and incognito mode.</string>
     <string name="settings_incognito_mode">Incognito Mode</string>
@@ -923,7 +925,7 @@
     <string name="settings_clear_history_dialog_title">Clear Watch History?</string>
     <string name="settings_clear_history_dialog_body">This will permanently delete all watch history, continue watching progress, and last visited categories across all providers.</string>
 
-    <!-- Common Actions -->
+    
     <string name="action_save">Save</string>
     <string name="action_cancel">Cancel</string>
     <string name="action_save_order">Save Order</string>
@@ -934,7 +936,7 @@
     <string name="action_move">MOVE</string>
     <string name="action_split">SPLIT</string>
 
-    <!-- Misc UI -->
+    
     <string name="label_provider">PROVIDER</string>
     <string name="label_selected">Selected</string>
     <string name="label_categories">Categories</string>
@@ -955,7 +957,7 @@
     <string name="badge_series">SERIES</string>
     <string name="action_see_all">See all</string>
 
-    <!-- Dashboard Feature Strings -->
+    
     <string name="dashboard_resume_movie">Resume movie</string>
     <string name="dashboard_resume_series">Resume series</string>
     <string name="dashboard_resume_episode_format">Resume S%1$d E%2$d</string>
@@ -973,7 +975,7 @@
     <string name="dashboard_pinned_channels_format">Pinned · %1$d channels</string>
     <string name="dashboard_channels_format">%1$d channels</string>
 
-    <!-- Favorites ViewModel Strings -->
+    
     <string name="favorites_all_favorites">All Favorites</string>
     <string name="favorites_saved_items_format">%1$d saved items</string>
     <string name="favorites_content_type_movie">Movie</string>
@@ -985,10 +987,10 @@
     <string name="favorites_pinned_home">Pinned %1$s to Home.</string>
     <string name="favorites_merged_group">Merged %1$s into the selected group.</string>
 
-    <!-- Status Pill Format -->
+    
     <string name="favorites_status_pill_format">%1$s %2$d</string>
 
-    <!-- RTL-safe compound formats -->
+    
     <string name="time_range_format">%1$s – %2$s</string>
     <string name="channel_number_name_format">%1$d. %2$s</string>
     <string name="label_colon_value_format">%1$s: %2$s</string>

@@ -258,6 +258,138 @@ class XtreamProviderTest {
         assertThat(movie.isAdult).isTrue()
     }
 
+    @Test
+    fun `vod list and details both normalize ratings to ten point scale`() = runBlocking {
+        val provider = XtreamProvider(
+            providerId = 42,
+            api = FakeXtreamApiService(
+                vodStreams = listOf(
+                    XtreamStream(
+                        name = "Movie",
+                        streamId = 55,
+                        rating = "10.0",
+                        rating5based = "5"
+                    )
+                ),
+                vodInfo = XtreamVodInfoResponse(
+                    info = XtreamVodInfo(
+                        rating = "10.0",
+                        rating5based = "5"
+                    ),
+                    movieData = XtreamVodMovieData(
+                        streamId = 55,
+                        name = "Movie"
+                    )
+                )
+            ),
+            serverUrl = "https://example.com",
+            username = "user",
+            password = "pass"
+        )
+
+        val gridMovie = provider.getVodStreams().getOrNull().orEmpty().single()
+        val detailMovie = provider.getVodInfo(55).getOrNull()
+
+        assertThat(gridMovie.rating).isEqualTo(10f)
+        assertThat(detailMovie?.rating).isEqualTo(10f)
+    }
+
+    @Test
+    fun `getSeriesInfo falls back to legacy series query parameter when primary payload is empty`() = runBlocking {
+        val requestedEndpoints = mutableListOf<String>()
+        val provider = XtreamProvider(
+            providerId = 42,
+            api = object : XtreamApiService {
+                override suspend fun authenticate(endpoint: String): XtreamAuthResponse =
+                    XtreamAuthResponse(XtreamUserInfo(auth = 1), XtreamServerInfo())
+
+                override suspend fun getLiveCategories(endpoint: String): List<XtreamCategory> = emptyList()
+
+                override suspend fun getLiveStreams(endpoint: String): List<XtreamStream> = emptyList()
+
+                override suspend fun getVodCategories(endpoint: String): List<XtreamCategory> = emptyList()
+
+                override suspend fun getVodStreams(endpoint: String): List<XtreamStream> = emptyList()
+
+                override suspend fun getVodInfo(endpoint: String): XtreamVodInfoResponse = XtreamVodInfoResponse()
+
+                override suspend fun getSeriesCategories(endpoint: String): List<XtreamCategory> = emptyList()
+
+                override suspend fun getSeriesList(endpoint: String): List<XtreamSeriesItem> = emptyList()
+
+                override suspend fun getSeriesInfo(endpoint: String): XtreamSeriesInfoResponse {
+                    requestedEndpoints += endpoint
+                    return if (endpoint.contains("series_id=77")) {
+                        XtreamSeriesInfoResponse()
+                    } else {
+                        XtreamSeriesInfoResponse(
+                            info = XtreamSeriesItem(name = "Fallback Series"),
+                            episodes = mapOf(
+                                "1" to listOf(
+                                    XtreamEpisode(
+                                        id = "501",
+                                        episodeNum = 1,
+                                        title = "Episode One",
+                                        season = 1,
+                                        containerExtension = "mp4"
+                                    )
+                                )
+                            )
+                        )
+                    }
+                }
+
+                override suspend fun getShortEpg(endpoint: String): XtreamEpgResponse = XtreamEpgResponse()
+
+                override suspend fun getFullEpg(endpoint: String): XtreamEpgResponse = XtreamEpgResponse()
+            },
+            serverUrl = "https://example.com",
+            username = "user",
+            password = "pass"
+        )
+
+        val series = provider.getSeriesInfo(77).getOrNull()
+
+        assertThat(series).isNotNull()
+        assertThat(series?.name).isEqualTo("Fallback Series")
+        assertThat(series?.seasons).hasSize(1)
+        assertThat(requestedEndpoints).hasSize(2)
+        assertThat(requestedEndpoints.first()).contains("series_id=77")
+        assertThat(requestedEndpoints.last()).contains("series=77")
+    }
+
+    @Test
+    fun `getSeriesInfo builds usable series from episodes when info block is missing`() = runBlocking {
+        val provider = XtreamProvider(
+            providerId = 42,
+            api = FakeXtreamApiService(
+                seriesInfo = XtreamSeriesInfoResponse(
+                    episodes = mapOf(
+                        "1" to listOf(
+                            XtreamEpisode(
+                                id = "701",
+                                episodeNum = 1,
+                                title = "Pilot",
+                                season = 1,
+                                containerExtension = "mp4"
+                            )
+                        )
+                    )
+                )
+            ),
+            serverUrl = "https://example.com",
+            username = "user",
+            password = "pass"
+        )
+
+        val series = provider.getSeriesInfo(88).getOrNull()
+
+        assertThat(series).isNotNull()
+        assertThat(series?.seriesId).isEqualTo(88L)
+        assertThat(series?.seasons).hasSize(1)
+        assertThat(series?.seasons?.first()?.episodes).hasSize(1)
+    }
+
     private class FakeXtreamApiService(
         private val authResponse: XtreamAuthResponse = XtreamAuthResponse(XtreamUserInfo(auth = 1), XtreamServerInfo()),
         private val liveCategories: List<XtreamCategory> = emptyList(),

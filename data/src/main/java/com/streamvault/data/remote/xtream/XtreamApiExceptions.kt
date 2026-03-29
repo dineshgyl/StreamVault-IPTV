@@ -19,3 +19,13 @@ class XtreamRequestException(
     message: String,
     cause: Throwable? = null
 ) : XtreamApiException(message, cause)
+
+class XtreamResponseTooLargeException(
+    val hint: String,
+    val observedBytes: Long,
+    val maxAllowedBytes: Long,
+    cause: Throwable? = null
+) : XtreamApiException(
+    "Response from $hint exceeded safe in-memory budget (${observedBytes}B > ${maxAllowedBytes}B)",
+    cause
+)

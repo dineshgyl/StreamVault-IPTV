@@ -28,7 +28,6 @@ class ProviderRepositoryImpl @Inject constructor(
     private val syncManager: SyncManager,
     private val syncMetadataRepository: SyncMetadataRepository
 ) : ProviderRepository {
-
     override fun getProviders(): Flow<List<Provider>> =
         providerDao.getAll().map { entities -> entities.map { it.toPublicDomain() } }
 
@@ -56,6 +55,7 @@ class ProviderRepositoryImpl @Inject constructor(
         // ProgramEntity still has no provider FK, so it requires explicit cleanup.
         programDao.deleteByProvider(id)
         providerDao.delete(id)
+        syncManager.onProviderDeleted(id)
         Result.success(Unit)
     } catch (e: Exception) {
         Result.error("Failed to delete provider: ${e.message}", e)
@@ -123,7 +123,6 @@ class ProviderRepositoryImpl @Inject constructor(
                 }
 
                 providerDao.setActive(providerData.id)
-
                 when (val syncResult = syncManager.sync(providerData.id, force = false, onProgress = onProgress)) {
                     is Result.Success -> {
                         val finalStatus = if (syncManager.currentSyncState(providerData.id) is SyncState.Partial) {
@@ -136,12 +135,8 @@ class ProviderRepositoryImpl @Inject constructor(
                     }
                     is Result.Error -> {
                         updateProviderSyncStatus(providerData.id, ProviderStatus.ERROR)
-                        if (existingProvider == null) {
-                            // Rollback: if this was a new provider and initial sync failed, don't leave it in the database
-                            providerDao.delete(providerData.id)
-                        }
                         Result.error(
-                            "Provider authenticated, but initial sync failed: ${syncResult.message}",
+                            "Provider login succeeded, but initial sync failed. The provider was saved and can be retried from Settings: ${syncResult.message}",
                             syncResult.exception
                         )
                     }
@@ -203,7 +198,6 @@ class ProviderRepositoryImpl @Inject constructor(
 
         providerDao.deactivateAll()
         providerDao.activate(providerData.id)
-
         when (val syncResult = syncManager.sync(providerData.id, force = false, onProgress = onProgress)) {
             is Result.Success -> {
                 val finalStatus = if (syncManager.currentSyncState(providerData.id) is SyncState.Partial) {
@@ -216,12 +210,8 @@ class ProviderRepositoryImpl @Inject constructor(
             }
             is Result.Error -> {
                 updateProviderSyncStatus(providerData.id, ProviderStatus.ERROR)
-                if (existingProvider == null) {
-                    // Rollback: if this was a new provider and initial sync failed, don't leave it in the database
-                    providerDao.delete(providerData.id)
-                }
                 Result.error(
-                    "Playlist saved, but initial sync failed: ${syncResult.message}",
+                    "Playlist saved, but initial sync failed. The provider was saved and can be retried from Settings: ${syncResult.message}",
                     syncResult.exception
                 )
             }

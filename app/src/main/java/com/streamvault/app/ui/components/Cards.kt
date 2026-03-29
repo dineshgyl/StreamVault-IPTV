@@ -57,6 +57,7 @@ import com.streamvault.app.ui.components.rememberCrossfadeImageModel
 import com.streamvault.app.ui.components.shell.MoviePosterCard
 import com.streamvault.app.ui.components.shell.SeriesPosterCard
 import com.streamvault.app.ui.components.shell.StatusPill
+import com.streamvault.app.ui.model.formatVodRatingLabel
 import com.streamvault.app.ui.theme.AccentAmber
 import com.streamvault.app.ui.theme.AccentCyan
 import com.streamvault.app.ui.theme.AccentRed
@@ -389,7 +390,7 @@ fun MovieCard(
                         .padding(horizontal = 6.dp, vertical = 2.dp)
                 ) {
                     Text(
-                        text = stringResource(R.string.label_rating, String.format("%.1f", movie.rating)),
+                        text = formatVodRatingLabel(movie.rating),
                         style = MaterialTheme.typography.labelSmall,
                         color = AccentAmber
                     )
@@ -486,7 +487,7 @@ fun SeriesCard(
                         .padding(horizontal = 6.dp, vertical = 2.dp)
                 ) {
                     Text(
-                        text = stringResource(R.string.label_rating, String.format("%.1f", series.rating)),
+                        text = formatVodRatingLabel(series.rating),
                         style = MaterialTheme.typography.labelSmall,
                         color = AccentAmber
                     )

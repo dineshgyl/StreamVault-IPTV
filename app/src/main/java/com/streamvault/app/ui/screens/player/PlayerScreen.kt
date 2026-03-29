@@ -163,8 +163,6 @@ fun PlayerScreen(
     val aspectRatio by viewModel.aspectRatio.collectAsStateWithLifecycle()
     val showDiagnostics by viewModel.showDiagnostics.collectAsStateWithLifecycle()
     val playerDiagnostics by viewModel.playerDiagnostics.collectAsStateWithLifecycle()
-    val currentPosition by viewModel.playerEngine.currentPosition.collectAsStateWithLifecycle()
-    val duration by viewModel.playerEngine.duration.collectAsStateWithLifecycle()
     val playerNotice by viewModel.playerNotice.collectAsStateWithLifecycle()
     val currentChannelRecording by viewModel.currentChannelRecording.collectAsStateWithLifecycle()
     val isMuted by viewModel.isMuted.collectAsStateWithLifecycle()
@@ -360,6 +358,41 @@ fun PlayerScreen(
         }
     }
 
+    val handleBackPress = remember(
+        playerNotice,
+        showProgramHistory,
+        showSplitDialog,
+        showSpeedSelection,
+        showTrackSelection,
+        showDiagnostics,
+        showChannelInfoOverlay,
+        showChannelListOverlay,
+        showCategoryListOverlay,
+        showEpgOverlay,
+        showControls,
+        numericChannelInput
+    ) {
+        {
+            when {
+                viewModel.hasPendingNumericChannelInput() -> viewModel.clearNumericChannelInput()
+                playerNotice != null -> viewModel.dismissPlayerNotice()
+                showProgramHistory -> showProgramHistory = false
+                showSplitDialog -> showSplitDialog = false
+                showSpeedSelection -> showSpeedSelection = false
+                showTrackSelection != null -> showTrackSelection = null
+                showDiagnostics -> viewModel.toggleDiagnostics()
+                showChannelInfoOverlay -> viewModel.closeChannelInfoOverlay()
+                showChannelListOverlay || showCategoryListOverlay || showEpgOverlay -> viewModel.closeOverlays()
+                showControls -> viewModel.toggleControls()
+                else -> onBack()
+            }
+        }
+    }
+
+    BackHandler(enabled = !resumePrompt.show) {
+        handleBackPress()
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -487,40 +520,8 @@ fun PlayerScreen(
                             true
                         }
                         KeyEvent.KEYCODE_BACK -> {
-                            if (viewModel.hasPendingNumericChannelInput()) {
-                                viewModel.clearNumericChannelInput()
-                                true
-                            } else if (playerNotice != null) {
-                                viewModel.dismissPlayerNotice()
-                                true
-                            } else if (showProgramHistory) {
-                                showProgramHistory = false
-                                true
-                            } else if (showSplitDialog) {
-                                showSplitDialog = false
-                                true
-                            } else if (showSpeedSelection) {
-                                showSpeedSelection = false
-                                true
-                            } else if (showTrackSelection != null) {
-                                showTrackSelection = null
-                                true
-                            } else if (showDiagnostics) {
-                                viewModel.toggleDiagnostics()
-                                true
-                            } else if (showChannelInfoOverlay) {
-                                viewModel.closeChannelInfoOverlay()
-                                true
-                            } else if (showChannelListOverlay || showCategoryListOverlay || showEpgOverlay) {
-                                viewModel.closeOverlays()
-                                true
-                            } else if (showControls) {
-                                viewModel.toggleControls()
-                                true
-                            } else {
-                                onBack()
-                                true
-                            }
+                            handleBackPress()
+                            true
                         }
                         KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> {
                             if (isPlaying) viewModel.pause() else viewModel.play()
@@ -684,7 +685,8 @@ fun PlayerScreen(
             )
         }
 
-        PlayerControlsOverlay(
+        PlayerControlsOverlayHost(
+            playerEngine = viewModel.playerEngine,
             visible = showControls,
             title = title,
             contentType = contentType,
@@ -692,8 +694,6 @@ fun PlayerScreen(
             currentProgram = currentProgram,
             currentChannelName = currentChannel?.name,
             displayChannelNumber = displayChannelNumber,
-            currentPosition = currentPosition,
-            duration = duration,
             aspectRatioLabel = aspectRatio.modeName,
             subtitleTrackCount = availableSubtitleTracks.size,
             audioTrackCount = availableAudioTracks.size,
@@ -705,7 +705,7 @@ fun PlayerScreen(
             playButtonFocusRequester = playButtonFocusRequester,
             quickActionsFocusRequester = quickActionsFocusRequester,
             modifier = Modifier.fillMaxSize(),
-            onClose = onBack,
+            onClose = viewModel::toggleControls,
             onTogglePlayPause = { if (isPlaying) viewModel.pause() else viewModel.play() },
             onSeekBackward = viewModel::seekBackward,
             onSeekForward = viewModel::seekForward,
@@ -951,6 +951,109 @@ private fun buildResolutionBadgeLabel(
     } else {
         selectedTrack.name
     }
+}
+
+@Composable
+private fun PlayerControlsOverlayHost(
+    playerEngine: PlayerEngine,
+    visible: Boolean,
+    title: String,
+    contentType: String,
+    isPlaying: Boolean,
+    currentProgram: Program?,
+    currentChannelName: String?,
+    displayChannelNumber: Int,
+    aspectRatioLabel: String,
+    subtitleTrackCount: Int,
+    audioTrackCount: Int,
+    videoQualityCount: Int,
+    currentRecordingStatus: com.streamvault.domain.model.RecordingStatus?,
+    isMuted: Boolean,
+    playbackSpeed: Float,
+    mediaTitle: String?,
+    playButtonFocusRequester: FocusRequester,
+    quickActionsFocusRequester: FocusRequester,
+    modifier: Modifier = Modifier,
+    onClose: () -> Unit,
+    onTogglePlayPause: () -> Unit,
+    onSeekBackward: () -> Unit,
+    onSeekForward: () -> Unit,
+    onRestartProgram: () -> Unit,
+    onOpenArchive: () -> Unit,
+    onStartRecording: () -> Unit,
+    onStopRecording: () -> Unit,
+    onScheduleRecording: () -> Unit,
+    onScheduleDailyRecording: () -> Unit,
+    onScheduleWeeklyRecording: () -> Unit,
+    onToggleAspectRatio: () -> Unit,
+    onOpenSubtitleTracks: () -> Unit,
+    onOpenAudioTracks: () -> Unit,
+    onOpenVideoTracks: () -> Unit,
+    onOpenPlaybackSpeed: () -> Unit,
+    onOpenSplitScreen: () -> Unit,
+    onEnterPictureInPicture: () -> Unit,
+    onToggleMute: () -> Unit,
+    isCastConnected: Boolean,
+    onCast: () -> Unit,
+    onStopCasting: () -> Unit,
+    onSeekToPosition: (Long) -> Unit,
+    onSetScrubbingMode: (Boolean) -> Unit,
+    seekPreview: SeekPreviewState,
+    onSeekPreviewPositionChanged: (Long?) -> Unit,
+    onUserInteraction: () -> Unit
+) {
+    val currentPosition by playerEngine.currentPosition.collectAsStateWithLifecycle()
+    val duration by playerEngine.duration.collectAsStateWithLifecycle()
+
+    PlayerControlsOverlay(
+        visible = visible,
+        title = title,
+        contentType = contentType,
+        isPlaying = isPlaying,
+        currentProgram = currentProgram,
+        currentChannelName = currentChannelName,
+        displayChannelNumber = displayChannelNumber,
+        currentPosition = currentPosition,
+        duration = duration,
+        aspectRatioLabel = aspectRatioLabel,
+        subtitleTrackCount = subtitleTrackCount,
+        audioTrackCount = audioTrackCount,
+        videoQualityCount = videoQualityCount,
+        currentRecordingStatus = currentRecordingStatus,
+        isMuted = isMuted,
+        playbackSpeed = playbackSpeed,
+        mediaTitle = mediaTitle,
+        playButtonFocusRequester = playButtonFocusRequester,
+        quickActionsFocusRequester = quickActionsFocusRequester,
+        modifier = modifier,
+        onClose = onClose,
+        onTogglePlayPause = onTogglePlayPause,
+        onSeekBackward = onSeekBackward,
+        onSeekForward = onSeekForward,
+        onRestartProgram = onRestartProgram,
+        onOpenArchive = onOpenArchive,
+        onStartRecording = onStartRecording,
+        onStopRecording = onStopRecording,
+        onScheduleRecording = onScheduleRecording,
+        onScheduleDailyRecording = onScheduleDailyRecording,
+        onScheduleWeeklyRecording = onScheduleWeeklyRecording,
+        onToggleAspectRatio = onToggleAspectRatio,
+        onOpenSubtitleTracks = onOpenSubtitleTracks,
+        onOpenAudioTracks = onOpenAudioTracks,
+        onOpenVideoTracks = onOpenVideoTracks,
+        onOpenPlaybackSpeed = onOpenPlaybackSpeed,
+        onOpenSplitScreen = onOpenSplitScreen,
+        onEnterPictureInPicture = onEnterPictureInPicture,
+        onToggleMute = onToggleMute,
+        isCastConnected = isCastConnected,
+        onCast = onCast,
+        onStopCasting = onStopCasting,
+        onSeekToPosition = onSeekToPosition,
+        onSetScrubbingMode = onSetScrubbingMode,
+        seekPreview = seekPreview,
+        onSeekPreviewPositionChanged = onSeekPreviewPositionChanged,
+        onUserInteraction = onUserInteraction
+    )
 }
 
 private tailrec fun android.content.Context.findMainActivity(): MainActivity? = when (this) {

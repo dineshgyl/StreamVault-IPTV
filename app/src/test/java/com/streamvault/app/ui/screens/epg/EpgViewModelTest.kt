@@ -2,7 +2,9 @@ package com.streamvault.app.ui.screens.epg
 
 import com.google.common.truth.Truth.assertThat
 import com.streamvault.data.preferences.PreferencesRepository
+import com.streamvault.domain.manager.ParentalControlManager
 import com.streamvault.domain.model.Category
+import com.streamvault.domain.model.CategorySortMode
 import com.streamvault.domain.model.Channel
 import com.streamvault.domain.model.ContentType
 import com.streamvault.domain.model.Favorite
@@ -39,17 +41,33 @@ class EpgViewModelTest {
     private val epgRepository: EpgRepository = mock()
     private val favoriteRepository: FavoriteRepository = mock()
     private val preferencesRepository: PreferencesRepository = mock()
+    private val parentalControlManager: ParentalControlManager = mock()
 
     private val testDispatcher = StandardTestDispatcher()
 
     @Before
     fun setup() {
         Dispatchers.setMain(testDispatcher)
+        whenever(preferencesRepository.parentalControlLevel).thenReturn(flowOf(0))
     }
 
     @After
     fun tearDown() {
+        testDispatcher.scheduler.advanceUntilIdle()
         Dispatchers.resetMain()
+    }
+
+    private fun waitForUiState(timeoutMs: Long = 5_000L, condition: () -> Boolean) {
+        val deadline = System.currentTimeMillis() + timeoutMs
+        while (System.currentTimeMillis() < deadline) {
+            testDispatcher.scheduler.advanceUntilIdle()
+            if (condition()) {
+                return
+            }
+            Thread.sleep(10L)
+        }
+        testDispatcher.scheduler.advanceUntilIdle()
+        assertThat(condition()).isTrue()
     }
 
     @Test
@@ -65,6 +83,9 @@ class EpgViewModelTest {
             Channel(id = 2L, name = "Two", providerId = provider.id, epgChannelId = "two")
         )
         whenever(providerRepository.getActiveProvider()).thenReturn(flowOf(provider))
+        whenever(preferencesRepository.getHiddenCategoryIds(provider.id, ContentType.LIVE)).thenReturn(flowOf(emptySet()))
+        whenever(preferencesRepository.getCategorySortMode(provider.id, ContentType.LIVE)).thenReturn(flowOf(CategorySortMode.DEFAULT))
+        whenever(parentalControlManager.unlockedCategoriesForProvider(provider.id)).thenReturn(flowOf(emptySet()))
         whenever(channelRepository.getCategories(provider.id)).thenReturn(flowOf(listOf(Category(id = 10L, name = "News"))))
         whenever(channelRepository.getChannels(provider.id)).thenReturn(flowOf(channels))
         whenever(channelRepository.getChannelsByNumber(provider.id, ChannelRepository.ALL_CHANNELS_ID)).thenReturn(flowOf(channels))
@@ -98,10 +119,12 @@ class EpgViewModelTest {
             channelRepository = channelRepository,
             epgRepository = epgRepository,
             favoriteRepository = favoriteRepository,
-            preferencesRepository = preferencesRepository
+            preferencesRepository = preferencesRepository,
+            parentalControlManager = parentalControlManager
         )
 
         advanceUntilIdle()
+        waitForUiState { viewModel.uiState.value.programsByChannel.keys.containsAll(listOf("one", "two")) }
 
         assertThat(viewModel.uiState.value.programsByChannel.keys).containsExactly("one", "two")
         verify(epgRepository).getProgramsForChannels(eq(provider.id), eq(listOf("one", "two")), any(), any())
@@ -121,6 +144,9 @@ class EpgViewModelTest {
             Channel(id = 2L, name = "Two", providerId = provider.id, epgChannelId = "two", categoryId = 10L)
         )
         whenever(providerRepository.getActiveProvider()).thenReturn(flowOf(provider))
+        whenever(preferencesRepository.getHiddenCategoryIds(provider.id, ContentType.LIVE)).thenReturn(flowOf(emptySet()))
+        whenever(preferencesRepository.getCategorySortMode(provider.id, ContentType.LIVE)).thenReturn(flowOf(CategorySortMode.DEFAULT))
+        whenever(parentalControlManager.unlockedCategoriesForProvider(provider.id)).thenReturn(flowOf(emptySet()))
         whenever(channelRepository.getCategories(provider.id)).thenReturn(flowOf(listOf(Category(id = 10L, name = "News"))))
         whenever(channelRepository.getChannels(provider.id)).thenReturn(flowOf(channels))
         whenever(channelRepository.getChannelsByCategory(provider.id, 10L)).thenReturn(flowOf(channels))
@@ -134,17 +160,28 @@ class EpgViewModelTest {
         whenever(preferencesRepository.guideFavoritesOnly).thenReturn(flowOf(false))
         whenever(preferencesRepository.guideScheduledOnly).thenReturn(flowOf(false))
         whenever(preferencesRepository.guideAnchorTime).thenReturn(flowOf(null))
-        whenever(epgRepository.getProgramsForChannels(eq(provider.id), any(), any(), any())).thenReturn(flowOf(emptyMap()))
-        whenever(epgRepository.searchPrograms(eq(provider.id), eq("Headline"), any(), any(), eq(10L), any())).thenReturn(
+        whenever(epgRepository.getProgramsForChannels(eq(provider.id), any(), any(), any())).thenReturn(
             flowOf(
-                listOf(
-                    Program(
-                        id = 1L,
-                        channelId = "one",
-                        title = "Headline",
-                        startTime = System.currentTimeMillis() - 60_000L,
-                        endTime = System.currentTimeMillis() + 60_000L,
-                        providerId = provider.id
+                mapOf(
+                    "one" to listOf(
+                        Program(
+                            id = 1L,
+                            channelId = "one",
+                            title = "Headline",
+                            startTime = System.currentTimeMillis() - 60_000L,
+                            endTime = System.currentTimeMillis() + 60_000L,
+                            providerId = provider.id
+                        )
+                    ),
+                    "two" to listOf(
+                        Program(
+                            id = 2L,
+                            channelId = "two",
+                            title = "Weather",
+                            startTime = System.currentTimeMillis() - 60_000L,
+                            endTime = System.currentTimeMillis() + 60_000L,
+                            providerId = provider.id
+                        )
                     )
                 )
             )
@@ -155,18 +192,23 @@ class EpgViewModelTest {
             channelRepository = channelRepository,
             epgRepository = epgRepository,
             favoriteRepository = favoriteRepository,
-            preferencesRepository = preferencesRepository
+            preferencesRepository = preferencesRepository,
+            parentalControlManager = parentalControlManager
         )
 
         advanceUntilIdle()
         viewModel.selectCategory(10L)
         viewModel.updateProgramSearchQuery("Headline")
         advanceUntilIdle()
+        waitForUiState {
+            viewModel.uiState.value.channels.map { it.id } == listOf(1L) &&
+                viewModel.uiState.value.programsByChannel.keys == setOf("one")
+        }
 
-        assertThat(viewModel.uiState.value.channels.map { it.id }).containsExactly(1L, 2L)
+        assertThat(viewModel.uiState.value.channels.map { it.id }).containsExactly(1L)
         assertThat(viewModel.uiState.value.programsByChannel.keys).containsExactly("one")
         assertThat(viewModel.uiState.value.programSearchQuery).isEqualTo("Headline")
-        verify(epgRepository).searchPrograms(eq(provider.id), eq("Headline"), any(), any(), eq(10L), any())
+        verify(epgRepository, never()).getProgramsForChannel(any(), any(), any(), any())
     }
 
     @Test
@@ -196,6 +238,9 @@ class EpgViewModelTest {
         )
 
         whenever(providerRepository.getActiveProvider()).thenReturn(flowOf(provider))
+        whenever(preferencesRepository.getHiddenCategoryIds(provider.id, ContentType.LIVE)).thenReturn(flowOf(emptySet()))
+        whenever(preferencesRepository.getCategorySortMode(provider.id, ContentType.LIVE)).thenReturn(flowOf(CategorySortMode.DEFAULT))
+        whenever(parentalControlManager.unlockedCategoriesForProvider(provider.id)).thenReturn(flowOf(emptySet()))
         whenever(channelRepository.getCategories(provider.id)).thenReturn(flowOf(listOf(Category(id = 10L, name = "News"))))
         whenever(channelRepository.getChannelsByNumber(provider.id, ChannelRepository.ALL_CHANNELS_ID)).thenReturn(
             flowOf(listOf(healthyChannel, unhealthyFavorite))
@@ -224,12 +269,14 @@ class EpgViewModelTest {
             channelRepository = channelRepository,
             epgRepository = epgRepository,
             favoriteRepository = favoriteRepository,
-            preferencesRepository = preferencesRepository
+            preferencesRepository = preferencesRepository,
+            parentalControlManager = parentalControlManager
         )
 
         advanceUntilIdle()
         viewModel.toggleFavoritesOnly()
         advanceUntilIdle()
+        waitForUiState { viewModel.uiState.value.channels.map { it.id } == listOf(unhealthyFavorite.id) }
 
         assertThat(viewModel.uiState.value.channels.map { it.id }).containsExactly(unhealthyFavorite.id)
     }

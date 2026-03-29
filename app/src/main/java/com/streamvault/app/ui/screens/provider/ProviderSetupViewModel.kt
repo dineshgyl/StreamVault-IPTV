@@ -9,9 +9,12 @@ import com.streamvault.domain.usecase.ValidateAndAddProvider
 import com.streamvault.domain.usecase.ValidateAndAddProviderResult
 import com.streamvault.domain.usecase.XtreamProviderSetupCommand
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.flow.*
-import kotlinx.coroutines.launch
 import javax.inject.Inject
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 
 @HiltViewModel
 class ProviderSetupViewModel @Inject constructor(
@@ -54,7 +57,6 @@ class ProviderSetupViewModel @Inject constructor(
                         name = provider.name,
                         serverUrl = provider.serverUrl,
                         username = provider.username,
-                        // Do not prefill stored passwords back into UI.
                         password = "",
                         m3uUrl = provider.m3uUrl,
                         selectedTab = if (provider.type == ProviderType.M3U) 1 else 0,
@@ -88,7 +90,13 @@ class ProviderSetupViewModel @Inject constructor(
             )) {
                 is ValidateAndAddProviderResult.Success -> {
                     _uiState.update {
-                        it.copy(isLoading = false, loginSuccess = true, error = null, validationError = null, syncProgress = null)
+                        it.copy(
+                            isLoading = false,
+                            loginSuccess = true,
+                            error = null,
+                            validationError = null,
+                            syncProgress = null
+                        )
                     }
                 }
                 is ValidateAndAddProviderResult.ValidationError -> {
@@ -97,17 +105,24 @@ class ProviderSetupViewModel @Inject constructor(
                     }
                 }
                 is ValidateAndAddProviderResult.Error -> {
+                    val normalizedMessage = result.message.lowercase()
                     val userMessage = when {
-                        result.message.contains("certificate", ignoreCase = true) ||
-                            result.message.contains("trust", ignoreCase = true) ->
-                            "Secure connection failed — the server's TLS certificate is not trusted on this device"
-                        result.message.contains("authentication failed", ignoreCase = true) ||
-                            result.message.contains("auth", ignoreCase = true) ->
-                            "Login failed — please check your credentials and server URL"
-                        result.message.contains("unable to connect", ignoreCase = true) ||
-                            result.message.contains("timeout", ignoreCase = true) ||
-                            result.message.contains("network", ignoreCase = true) ->
-                            "Cannot reach server — check your internet connection and server URL"
+                        normalizedMessage.contains("certificate") ||
+                            normalizedMessage.contains("trust") ->
+                            "Secure connection failed - the server's TLS certificate is not trusted on this device"
+                        normalizedMessage.contains("provider login succeeded") ||
+                            normalizedMessage.contains("initial sync failed") ->
+                            "Login succeeded, but the initial sync failed while loading the playlist"
+                        normalizedMessage.contains("authentication failed") ||
+                            normalizedMessage.contains("invalid credentials") ||
+                            (normalizedMessage.contains("username") && normalizedMessage.contains("password")) ->
+                            "Login failed - please check your credentials and server URL"
+                        normalizedMessage.contains("temporarily busy") ->
+                            "Server is temporarily busy - try syncing again in a moment"
+                        normalizedMessage.contains("unable to connect") ||
+                            normalizedMessage.contains("timeout") ||
+                            normalizedMessage.contains("network") ->
+                            "Cannot reach server - check your internet connection and server URL"
                         else -> result.message
                     }
                     _uiState.update {
@@ -122,7 +137,9 @@ class ProviderSetupViewModel @Inject constructor(
         _uiState.update { it.copy(validationError = null, error = null) }
 
         if (url.isBlank()) {
-            _uiState.update { it.copy(validationError = if (_uiState.value.m3uTab == 0) "Please enter M3U URL" else "Please select a file") }
+            _uiState.update {
+                it.copy(validationError = if (_uiState.value.m3uTab == 0) "Please enter M3U URL" else "Please select a file")
+            }
             return
         }
 
@@ -140,7 +157,13 @@ class ProviderSetupViewModel @Inject constructor(
             )) {
                 is ValidateAndAddProviderResult.Success -> {
                     _uiState.update {
-                        it.copy(isLoading = false, loginSuccess = true, error = null, validationError = null, syncProgress = null)
+                        it.copy(
+                            isLoading = false,
+                            loginSuccess = true,
+                            error = null,
+                            validationError = null,
+                            syncProgress = null
+                        )
                     }
                 }
                 is ValidateAndAddProviderResult.ValidationError -> {
@@ -150,7 +173,12 @@ class ProviderSetupViewModel @Inject constructor(
                 }
                 is ValidateAndAddProviderResult.Error -> {
                     _uiState.update {
-                        it.copy(isLoading = false, error = "Could not validate playlist: ${result.message}", validationError = null, syncProgress = null)
+                        it.copy(
+                            isLoading = false,
+                            error = "Could not validate playlist: ${result.message}",
+                            validationError = null,
+                            syncProgress = null
+                        )
                     }
                 }
             }
@@ -167,9 +195,8 @@ data class ProviderSetupState(
     val syncProgress: String? = null,
     val isEditing: Boolean = false,
     val existingProviderId: Long? = null,
-    // Pre-fill data
     val selectedTab: Int = 0,
-    val m3uTab: Int = 0, // 0 = URL, 1 = File
+    val m3uTab: Int = 0,
     val name: String = "",
     val serverUrl: String = "",
     val username: String = "",

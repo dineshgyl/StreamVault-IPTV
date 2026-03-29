@@ -4,6 +4,7 @@ import com.streamvault.app.ui.model.guideLookupKey
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.streamvault.app.ui.model.applyProviderCategoryDisplayPreferences
+import com.streamvault.domain.manager.ParentalControlManager
 import com.streamvault.domain.model.Category
 import com.streamvault.domain.model.Channel
 import com.streamvault.domain.model.ContentType
@@ -39,6 +40,7 @@ data class EpgUiState(
     val showScheduledOnly: Boolean = false,
     val selectedChannelMode: GuideChannelMode = GuideChannelMode.ALL,
     val selectedDensity: GuideDensity = GuideDensity.COMPACT,
+    val parentalControlLevel: Int = 0,
     val showFavoritesOnly: Boolean = false,
     val favoriteChannelIds: Set<Long> = emptySet(),
     val channels: List<Channel> = emptyList(),
@@ -82,6 +84,7 @@ private data class GuideBaseRequest(
     val categories: List<Category>,
     val hiddenCategoryIds: Set<Long>,
     val resolvedCategoryId: Long,
+    val parentalControlLevel: Int,
     val anchorTime: Long,
     val favoritesOnly: Boolean,
     val windowStart: Long,
@@ -95,6 +98,7 @@ private data class GuideBaseSnapshot(
     val providerArchiveSummary: String,
     val categories: List<Category>,
     val selectedCategoryId: Long,
+    val parentalControlLevel: Int,
     val showFavoritesOnly: Boolean,
     val favoriteChannelIds: Set<Long>,
     val allChannels: List<Channel>,
@@ -124,13 +128,22 @@ private data class GuideBaseComputation(
     val hasUpcomingData: Boolean
 )
 
+private data class GuideSelectionRequest(
+    val requestedCategoryId: Long,
+    val anchorTime: Long,
+    val favoritesOnly: Boolean,
+    val parentalControlLevel: Int,
+    val unlockedCategoryIds: Set<Long>
+)
+
 @HiltViewModel
 class EpgViewModel @Inject constructor(
     private val providerRepository: ProviderRepository,
     private val channelRepository: ChannelRepository,
     private val epgRepository: EpgRepository,
     private val favoriteRepository: FavoriteRepository,
-    private val preferencesRepository: PreferencesRepository
+    private val preferencesRepository: PreferencesRepository,
+    private val parentalControlManager: ParentalControlManager
 ) : ViewModel() {
 
     companion object {
@@ -177,6 +190,14 @@ class EpgViewModel @Inject constructor(
     fun clearProgramSearch() {
         if (programSearchQuery.value.isBlank()) return
         programSearchQuery.value = ""
+    }
+
+    suspend fun verifyPin(pin: String): Boolean =
+        preferencesRepository.verifyParentalPin(pin)
+
+    fun unlockCategory(categoryId: Long) {
+        val providerId = baseGuideSnapshot.value?.providerId ?: return
+        parentalControlManager.unlockCategory(providerId, categoryId)
     }
 
     fun refresh() {
@@ -325,21 +346,37 @@ class EpgViewModel @Inject constructor(
                             refreshNonce
                         ) { requestedCategoryId, anchorTime, favoritesOnly, _ ->
                             Triple(requestedCategoryId, anchorTime, favoritesOnly)
+                        }.combine(preferencesRepository.parentalControlLevel) { selection, parentalControlLevel ->
+                            selection to parentalControlLevel
+                        }.combine(parentalControlManager.unlockedCategoriesForProvider(provider.id)) { (selection, parentalControlLevel), unlockedCategoryIds ->
+                            GuideSelectionRequest(
+                                requestedCategoryId = selection.first,
+                                anchorTime = selection.second,
+                                favoritesOnly = selection.third,
+                                parentalControlLevel = parentalControlLevel,
+                                unlockedCategoryIds = unlockedCategoryIds
+                            )
                         }
                     ) { (providerCategories, hiddenCategoryIds, sortMode), selection ->
-                        val (requestedCategoryId, anchorTime, favoritesOnly) = selection
+                        val requestedCategoryId = selection.requestedCategoryId
+                        val anchorTime = selection.anchorTime
+                        val favoritesOnly = selection.favoritesOnly
                         val visibleProviderCategories = applyProviderCategoryDisplayPreferences(
                             categories = providerCategories.filter { it.id != ChannelRepository.ALL_CHANNELS_ID },
                             hiddenCategoryIds = hiddenCategoryIds,
                             sortMode = sortMode
                         )
-                        val resolvedCategoryId = requestedCategoryId.takeIf { categoryId ->
-                            categoryId == ChannelRepository.ALL_CHANNELS_ID || visibleProviderCategories.any { it.id == categoryId }
-                        } ?: ChannelRepository.ALL_CHANNELS_ID
+                        val resolvedCategoryId = resolveGuideCategorySelection(
+                            requestedCategoryId = requestedCategoryId,
+                            categories = visibleProviderCategories,
+                            parentalControlLevel = selection.parentalControlLevel,
+                            unlockedCategoryIds = selection.unlockedCategoryIds
+                        )
                         GuideBaseRequest(
                             categories = visibleProviderCategories,
                             hiddenCategoryIds = hiddenCategoryIds,
                             resolvedCategoryId = resolvedCategoryId,
+                            parentalControlLevel = selection.parentalControlLevel,
                             anchorTime = anchorTime,
                             favoritesOnly = favoritesOnly,
                             windowStart = anchorTime - LOOKBACK_MS,
@@ -362,6 +399,7 @@ class EpgViewModel @Inject constructor(
                             },
                             providerArchiveSummary = buildProviderArchiveSummary(provider),
                             categories = categories,
+                            parentalControlLevel = request.parentalControlLevel,
                             showFavoritesOnly = request.favoritesOnly,
                             selectedCategoryId = request.resolvedCategoryId,
                             guideAnchorTime = request.anchorTime,
@@ -408,8 +446,8 @@ class EpgViewModel @Inject constructor(
                                     ?.let { lookupKey -> loadedGuideResult.programsByChannel[lookupKey].orEmpty().isNotEmpty() }
                                     ?: false
                             }
-                            val computedHasUpcomingData = loadedGuideResult.programsByChannel.values.flatten().any { program ->
-                                program.endTime > request.windowStart
+                            val computedHasUpcomingData = loadedGuideResult.programsByChannel.values.any { programs ->
+                                programs.any { program -> program.endTime > request.windowStart }
                             }
                             GuideBaseComputation(
                                 guideResult = loadedGuideResult,
@@ -428,6 +466,7 @@ class EpgViewModel @Inject constructor(
                             providerArchiveSummary = buildProviderArchiveSummary(provider),
                             categories = categories,
                             selectedCategoryId = request.resolvedCategoryId,
+                            parentalControlLevel = request.parentalControlLevel,
                             showFavoritesOnly = request.favoritesOnly,
                             favoriteChannelIds = channelSelection.favoriteChannelIds,
                             allChannels = allChannels,
@@ -492,6 +531,7 @@ class EpgViewModel @Inject constructor(
                         providerArchiveSummary = baseSnapshot.providerArchiveSummary,
                         categories = baseSnapshot.categories,
                         selectedCategoryId = baseSnapshot.selectedCategoryId,
+                        parentalControlLevel = baseSnapshot.parentalControlLevel,
                         programSearchQuery = presentation.searchQuery,
                         showScheduledOnly = presentation.scheduledOnly,
                         selectedChannelMode = presentation.channelMode,
@@ -576,19 +616,8 @@ class EpgViewModel @Inject constructor(
             val guideKeys = channels.mapNotNull(Channel::guideLookupKey).distinct()
             val xmltvKeys = channels.mapNotNull { it.epgChannelId?.trim()?.takeIf { value -> value.isNotEmpty() } }.distinct()
             val programsByChannel = runCatching {
-                val allowedIds = guideKeys.toSet()
-                when {
-                    categoryId != ChannelRepository.ALL_CHANNELS_ID && !favoritesOnly -> {
-                        epgRepository.getProgramsByCategory(
-                            providerId = providerId,
-                            categoryId = categoryId,
-                            startTime = windowStart,
-                            endTime = windowEnd
-                        ).first().filter { it.channelId in allowedIds }.groupBy { it.channelId }
-                    }
-
-                    else -> epgRepository.getProgramsForChannels(providerId, xmltvKeys, windowStart, windowEnd).first()
-                }
+                if (xmltvKeys.isEmpty()) emptyMap()
+                else epgRepository.getProgramsForChannels(providerId, xmltvKeys, windowStart, windowEnd).first()
             }.getOrElse { emptyMap() }
 
             val fallbackProgramsByChannel = fetchXtreamGuideFallback(
@@ -687,8 +716,8 @@ class EpgViewModel @Inject constructor(
                 ?.let { lookupKey -> candidateProgramsByChannel[lookupKey].orEmpty().isNotEmpty() }
                 ?: false
         }
-        val hasUpcomingData = candidateProgramsByChannel.values.flatten().any { program ->
-            program.endTime > baseSnapshot.guideWindowStart
+        val hasUpcomingData = candidateProgramsByChannel.values.any { programs ->
+            programs.any { program -> program.endTime > baseSnapshot.guideWindowStart }
         }
 
         return GuideDisplaySnapshot(
@@ -704,7 +733,7 @@ class EpgViewModel @Inject constructor(
         baseSnapshot: GuideBaseSnapshot,
         searchQuery: String
     ): Pair<List<Channel>, Map<String, List<Program>>> {
-        val localMatches = baseSnapshot.baseProgramsByChannel
+        val matchedProgramsByChannel = baseSnapshot.baseProgramsByChannel
             .mapValues { (_, programs) ->
                 programs.filter { program ->
                     program.title.contains(searchQuery, ignoreCase = true) ||
@@ -713,41 +742,48 @@ class EpgViewModel @Inject constructor(
             }
             .filterValues { it.isNotEmpty() }
 
-        val searchedPrograms = runCatching {
-            epgRepository.searchPrograms(
-                providerId = baseSnapshot.providerId,
-                query = searchQuery,
-                startTime = baseSnapshot.guideWindowStart,
-                endTime = baseSnapshot.guideWindowEnd,
-                categoryId = baseSnapshot.selectedCategoryId.takeUnless { it == ChannelRepository.ALL_CHANNELS_ID },
-                limit = maxOf(120, baseSnapshot.allChannels.size * 6)
-            ).first()
-        }.getOrElse { emptyList() }
-
-        val dbMatches = searchedPrograms
-            .groupBy { it.channelId }
-            .mapValues { (_, programs) ->
-                programs
-                    .distinctBy { Triple(it.startTime, it.endTime, it.title) }
-                    .sortedBy { it.startTime }
-            }
-
-        val mergedPrograms = (localMatches.keys + dbMatches.keys)
-            .associateWith { key ->
-                (localMatches[key].orEmpty() + dbMatches[key].orEmpty())
-                    .distinctBy { Triple(it.startTime, it.endTime, it.title) }
-                    .sortedBy { it.startTime }
-            }
-            .filterValues { it.isNotEmpty() }
-
-        val matchedChannels = baseSnapshot.allChannels.filter { channel ->
-            channel.guideLookupKey()?.let(mergedPrograms::containsKey) == true
+        val matchedChannels = baseSnapshot.visibleChannels.filter { channel ->
+            channel.name.contains(searchQuery, ignoreCase = true) ||
+                channel.categoryName?.contains(searchQuery, ignoreCase = true) == true ||
+                channel.guideLookupKey()?.let(matchedProgramsByChannel::containsKey) == true
         }.take(MAX_CHANNELS)
 
         val matchedChannelKeys = matchedChannels.mapNotNull(Channel::guideLookupKey).toSet()
-        return matchedChannels to mergedPrograms.filterKeys { it in matchedChannelKeys }
+        return matchedChannels to matchedProgramsByChannel.filterKeys { it in matchedChannelKeys }
     }
 
+    private fun resolveGuideCategorySelection(
+        requestedCategoryId: Long,
+        categories: List<Category>,
+        parentalControlLevel: Int,
+        unlockedCategoryIds: Set<Long>
+    ): Long {
+        val requestedExists = requestedCategoryId == ChannelRepository.ALL_CHANNELS_ID ||
+            categories.any { it.id == requestedCategoryId }
+        if (requestedCategoryId == ChannelRepository.ALL_CHANNELS_ID && requestedExists) {
+            return ChannelRepository.ALL_CHANNELS_ID
+        }
+
+        val requestedCategory = categories.firstOrNull { it.id == requestedCategoryId }
+        if (requestedCategory != null && isGuideCategoryAccessible(requestedCategory, parentalControlLevel, unlockedCategoryIds)) {
+            return requestedCategory.id
+        }
+
+        return categories.firstOrNull { category ->
+            isGuideCategoryAccessible(category, parentalControlLevel, unlockedCategoryIds)
+        }?.id ?: ChannelRepository.ALL_CHANNELS_ID
+    }
+
+    private fun isGuideCategoryAccessible(
+        category: Category,
+        parentalControlLevel: Int,
+        unlockedCategoryIds: Set<Long>
+    ): Boolean {
+        if (parentalControlLevel != 1) {
+            return true
+        }
+        return (!category.isAdult && !category.isUserProtected) || unlockedCategoryIds.contains(category.id)
+    }
 }
 
 private data class GuidePresentationState(

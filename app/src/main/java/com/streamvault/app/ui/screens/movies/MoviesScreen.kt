@@ -358,6 +358,14 @@ private fun MoviesVodContent(
                 kotlin.math.abs(category.id) !in uiState.unlockedCategoryIds
         }
     }
+    val isMovieLocked = remember(uiState.parentalControlLevel, uiState.unlockedCategoryIds) {
+        { movie: Movie ->
+            val categoryId = movie.categoryId
+            (movie.isAdult || movie.isUserProtected) &&
+                uiState.parentalControlLevel == 1 &&
+                (categoryId == null || kotlin.math.abs(categoryId) !in uiState.unlockedCategoryIds)
+        }
+    }
     val openProtectedCategory: (Category) -> Unit = onProtectedCategoryClick
     val visibleCategoryNames = remember(uiState.categoryNames, categoryByName, uiState.parentalControlLevel, uiState.unlockedCategoryIds) {
         uiState.categoryNames.filter { name ->
@@ -430,7 +438,7 @@ private fun MoviesVodContent(
                             ?: stringResource(R.string.movies_library_lens_subtitle),
                         actionLabel = stringResource(R.string.player_resume).substringBefore(" "),
                         onClick = {
-                            val isLocked = (heroMovie.isAdult || heroMovie.isUserProtected) && uiState.parentalControlLevel == 1
+                            val isLocked = isMovieLocked(heroMovie)
                             if (isLocked) onProtectedMovieClick(heroMovie) else onMovieClick(heroMovie)
                         },
                         modifier = Modifier.padding(top = 8.dp, bottom = 6.dp)
@@ -529,7 +537,7 @@ private fun MoviesVodContent(
                         onSeeAll = { onSelectCategory(uiState.favoriteCategoryName) },
                         keySelector = { it.id }
                     ) { movie ->
-                        val isLocked = (movie.isAdult || movie.isUserProtected) && uiState.parentalControlLevel == 1
+                        val isLocked = isMovieLocked(movie)
                         MovieCard(
                             movie = movie,
                             isLocked = isLocked,
@@ -551,7 +559,7 @@ private fun MoviesVodContent(
                         onSeeAll = null,
                         keySelector = { it.id }
                     ) { movie ->
-                        val isLocked = (movie.isAdult || movie.isUserProtected) && uiState.parentalControlLevel == 1
+                        val isLocked = isMovieLocked(movie)
                         MovieCard(
                             movie = movie,
                             isLocked = isLocked,
@@ -570,7 +578,7 @@ private fun MoviesVodContent(
                         onSeeAll = null,
                         keySelector = { it.id }
                     ) { movie ->
-                        val isLocked = (movie.isAdult || movie.isUserProtected) && uiState.parentalControlLevel == 1
+                        val isLocked = isMovieLocked(movie)
                         MovieCard(
                             movie = movie,
                             isLocked = isLocked,
@@ -597,7 +605,7 @@ private fun MoviesVodContent(
                     },
                     keySelector = { it.id }
                 ) { movie ->
-                    val isLocked = (movie.isAdult || movie.isUserProtected) && uiState.parentalControlLevel == 1
+                    val isLocked = isMovieLocked(movie)
                     MovieCard(
                         movie = movie,
                         isLocked = isLocked,
@@ -744,7 +752,7 @@ private fun MoviesVodContent(
             }
         } else {
             gridItems(filteredGridMovies, key = { it.id }) { movie ->
-                val isLocked = (movie.isAdult || movie.isUserProtected) && uiState.parentalControlLevel == 1
+                val isLocked = isMovieLocked(movie)
                 val isDraggingThis = draggingMovie == movie
                 MovieCard(
                     movie = movie,
@@ -834,6 +842,14 @@ private fun MoviesVodClassicContent(
             (category.isAdult || category.isUserProtected) &&
                 uiState.parentalControlLevel >= 2 &&
                 kotlin.math.abs(category.id) !in uiState.unlockedCategoryIds
+        }
+    }
+    val isMovieLocked = remember(uiState.parentalControlLevel, uiState.unlockedCategoryIds) {
+        { movie: Movie ->
+            val categoryId = movie.categoryId
+            (movie.isAdult || movie.isUserProtected) &&
+                uiState.parentalControlLevel == 1 &&
+                (categoryId == null || kotlin.math.abs(categoryId) !in uiState.unlockedCategoryIds)
         }
     }
     val openProtectedCategory: (Category) -> Unit = onProtectedCategoryClick
@@ -1050,7 +1066,7 @@ private fun MoviesVodClassicContent(
                     }
                 } else {
                     gridItems(filteredGridMovies, key = { it.id }) { movie ->
-                        val isLocked = (movie.isAdult || movie.isUserProtected) && uiState.parentalControlLevel == 1
+                        val isLocked = isMovieLocked(movie)
                         val isDraggingThis = draggingMovie == movie
                         MovieCard(
                             movie = movie,

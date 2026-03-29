@@ -1,5 +1,6 @@
 package com.streamvault.app.ui.screens.epg
 
+import android.view.inputmethod.InputMethodManager
 import com.streamvault.app.ui.model.guideLookupKey
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -44,6 +45,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -54,7 +56,9 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextOverflow
@@ -79,6 +83,7 @@ import com.streamvault.app.ui.components.ChannelLogoBadge
 import com.streamvault.app.navigation.Routes
 import com.streamvault.app.ui.components.SelectionChip
 import com.streamvault.app.ui.components.SelectionChipRow
+import com.streamvault.app.ui.components.dialogs.PinDialog
 import com.streamvault.app.ui.components.shell.AppNavigationChrome
 import com.streamvault.app.ui.components.shell.AppScreenScaffold
 import com.streamvault.app.ui.theme.FocusBorder
@@ -99,7 +104,15 @@ import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlin.math.max
+
+private sealed interface LockedGuideAction {
+    data class SelectCategory(val category: Category) : LockedGuideAction
+    data class OpenProgram(val channel: Channel, val program: Program) : LockedGuideAction
+    data class PlayChannel(val channel: Channel, val returnRoute: String) : LockedGuideAction
+    data class PlayArchive(val channel: Channel, val program: Program, val returnRoute: String) : LockedGuideAction
+}
 
 @Composable
 fun FullEpgScreen(
@@ -120,6 +133,11 @@ fun FullEpgScreen(
     var showCategoryPicker by rememberSaveable { mutableStateOf(false) }
     var showGuideOptions by rememberSaveable { mutableStateOf(false) }
     var showSearchOverlay by rememberSaveable { mutableStateOf(false) }
+    var showPinDialog by rememberSaveable { mutableStateOf(false) }
+    var pinError by rememberSaveable { mutableStateOf<String?>(null) }
+    var pendingLockedAction by remember { mutableStateOf<LockedGuideAction?>(null) }
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
     val now = rememberGuideNow()
     val returnRoute = remember(uiState.selectedCategoryId, uiState.guideAnchorTime, uiState.showFavoritesOnly) {
         Routes.epg(
@@ -127,6 +145,24 @@ fun FullEpgScreen(
             anchorTime = uiState.guideAnchorTime,
             favoritesOnly = uiState.showFavoritesOnly
         )
+    }
+    val categoriesById = remember(uiState.categories) {
+        uiState.categories.associateBy { it.id }
+    }
+
+    fun executeLockedGuideAction(action: LockedGuideAction) {
+        when (action) {
+            is LockedGuideAction.SelectCategory -> viewModel.selectCategory(action.category.id)
+            is LockedGuideAction.OpenProgram -> selectedProgram = action.channel to action.program
+            is LockedGuideAction.PlayChannel -> onPlayChannel(action.channel, action.returnRoute)
+            is LockedGuideAction.PlayArchive -> onPlayArchive(action.channel, action.program, action.returnRoute)
+        }
+    }
+
+    fun requestLockedGuideAction(action: LockedGuideAction) {
+        pendingLockedAction = action
+        pinError = null
+        showPinDialog = true
     }
 
     LaunchedEffect(initialCategoryId, initialAnchorTime, initialFavoritesOnly) {
@@ -313,10 +349,20 @@ fun FullEpgScreen(
                         guideWindowEnd = uiState.guideWindowEnd,
                         density = uiState.selectedDensity,
                         now = now,
-                        onChannelClick = { channel -> onPlayChannel(channel, returnRoute) },
+                        onChannelClick = { channel ->
+                            if (isGuideChannelLocked(channel, categoriesById, uiState.parentalControlLevel)) {
+                                requestLockedGuideAction(LockedGuideAction.PlayChannel(channel, returnRoute))
+                            } else {
+                                onPlayChannel(channel, returnRoute)
+                            }
+                        },
                         onProgramClick = { channel, program ->
                             topNavVisible = false
-                            selectedProgram = channel to program
+                            if (isGuideChannelLocked(channel, categoriesById, uiState.parentalControlLevel)) {
+                                requestLockedGuideAction(LockedGuideAction.OpenProgram(channel, program))
+                            } else {
+                                selectedProgram = channel to program
+                            }
                         },
                         onChannelFocused = { channel, currentProgram ->
                             topNavVisible = false
@@ -338,10 +384,15 @@ fun FullEpgScreen(
         GuideCategoryPickerDialog(
             categories = uiState.categories,
             selectedCategoryId = uiState.selectedCategoryId,
+            parentalControlLevel = uiState.parentalControlLevel,
             onDismiss = { showCategoryPicker = false },
-            onCategorySelected = { categoryId ->
+            onCategorySelected = { category ->
                 showCategoryPicker = false
-                viewModel.selectCategory(categoryId)
+                if (isGuideCategoryLocked(category, uiState.parentalControlLevel)) {
+                    requestLockedGuideAction(LockedGuideAction.SelectCategory(category))
+                } else {
+                    viewModel.selectCategory(category.id)
+                }
             }
         )
     }
@@ -351,7 +402,10 @@ fun FullEpgScreen(
             query = uiState.programSearchQuery,
             onQueryChange = viewModel::updateProgramSearchQuery,
             onClear = viewModel::clearProgramSearch,
-            onDismiss = { showSearchOverlay = false }
+            onDismiss = {
+                viewModel.clearProgramSearch()
+                showSearchOverlay = false
+            }
         )
     }
 
@@ -383,6 +437,38 @@ fun FullEpgScreen(
         )
     }
 
+    if (showPinDialog) {
+        PinDialog(
+            onDismissRequest = {
+                showPinDialog = false
+                pinError = null
+                pendingLockedAction = null
+            },
+            onPinEntered = { pin ->
+                scope.launch {
+                    if (viewModel.verifyPin(pin)) {
+                        val action = pendingLockedAction
+                        val lockedCategoryId = when (action) {
+                            is LockedGuideAction.SelectCategory -> action.category.id
+                            is LockedGuideAction.OpenProgram -> action.channel.categoryId
+                            is LockedGuideAction.PlayChannel -> action.channel.categoryId
+                            is LockedGuideAction.PlayArchive -> action.channel.categoryId
+                            null -> null
+                        }
+                        lockedCategoryId?.let(viewModel::unlockCategory)
+                        showPinDialog = false
+                        pinError = null
+                        pendingLockedAction = null
+                        action?.let(::executeLockedGuideAction)
+                    } else {
+                        pinError = context.getString(R.string.home_incorrect_pin)
+                    }
+                }
+            },
+            error = pinError
+        )
+    }
+
     val dialogState = selectedProgram
     if (dialogState != null) {
         val (channel, program) = dialogState
@@ -394,12 +480,20 @@ fun FullEpgScreen(
             onDismiss = { selectedProgram = null },
             onWatchLive = {
                 selectedProgram = null
-                onPlayChannel(channel, returnRoute)
+                if (isGuideChannelLocked(channel, categoriesById, uiState.parentalControlLevel)) {
+                    requestLockedGuideAction(LockedGuideAction.PlayChannel(channel, returnRoute))
+                } else {
+                    onPlayChannel(channel, returnRoute)
+                }
             },
             onWatchArchive = if (program.hasArchive || channel.catchUpSupported) {
                 {
                     selectedProgram = null
-                    onPlayArchive(channel, program, returnRoute)
+                    if (isGuideChannelLocked(channel, categoriesById, uiState.parentalControlLevel)) {
+                        requestLockedGuideAction(LockedGuideAction.PlayArchive(channel, program, returnRoute))
+                    } else {
+                        onPlayArchive(channel, program, returnRoute)
+                    }
                 }
             } else {
                 null
@@ -575,6 +669,7 @@ private fun GuideProgramSearchRow(
     query: String,
     onQueryChange: (String) -> Unit,
     onClear: () -> Unit,
+    onSearch: (() -> Unit)? = null,
     focusRequester: FocusRequester? = null,
     autoRequestFocus: Boolean = false,
     contentPadding: PaddingValues = PaddingValues(horizontal = 24.dp, vertical = 12.dp),
@@ -582,6 +677,27 @@ private fun GuideProgramSearchRow(
     onSearchFieldActivated: (() -> Unit)? = null
 ) {
     val resolvedFocusRequester = focusRequester ?: remember { FocusRequester() }
+    var localQuery by rememberSaveable { mutableStateOf(query) }
+    var refocusToken by rememberSaveable { mutableStateOf(0) }
+
+    LaunchedEffect(query) {
+        if (query != localQuery) {
+            localQuery = query
+        }
+    }
+
+    LaunchedEffect(localQuery) {
+        if (localQuery == query) return@LaunchedEffect
+        if (localQuery.isBlank()) {
+            onQueryChange("")
+            return@LaunchedEffect
+        }
+        delay(250)
+        if (localQuery != query) {
+            onQueryChange(localQuery)
+        }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -601,19 +717,25 @@ private fun GuideProgramSearchRow(
             verticalAlignment = Alignment.CenterVertically
         ) {
             GuideSearchField(
-                value = query,
-                onValueChange = onQueryChange,
+                value = localQuery,
+                onValueChange = { localQuery = it },
                 placeholder = stringResource(R.string.epg_search_placeholder),
                 modifier = Modifier.weight(1f),
                 focusRequester = resolvedFocusRequester,
                 autoRequestFocus = autoRequestFocus,
+                refocusToken = refocusToken,
+                onSearch = onSearch,
                 onActivated = onSearchFieldActivated
             )
             Box(modifier = Modifier.widthIn(min = 104.dp), contentAlignment = Alignment.CenterEnd) {
-                if (query.isNotBlank()) {
+                if (localQuery.isNotBlank()) {
                     GuideShortcutChip(
                         label = stringResource(R.string.epg_clear_search),
-                        onClick = onClear
+                        onClick = {
+                            localQuery = ""
+                            onClear()
+                            refocusToken += 1
+                        }
                     )
                 }
             }
@@ -629,22 +751,62 @@ private fun GuideSearchField(
     modifier: Modifier = Modifier,
     focusRequester: FocusRequester = remember { FocusRequester() },
     autoRequestFocus: Boolean = false,
+    refocusToken: Int = 0,
+    onSearch: (() -> Unit)? = null,
     onActivated: (() -> Unit)? = null
 ) {
     var isFocused by remember { mutableStateOf(false) }
     val keyboardController = LocalSoftwareKeyboardController.current
+    val view = LocalView.current
+    val context = LocalContext.current
+    var pendingKeyboardRequest by remember { mutableStateOf(0) }
+    val inputMethodManager = remember(context) {
+        context.getSystemService(InputMethodManager::class.java)
+    }
+
+    fun requestKeyboard() {
+        pendingKeyboardRequest += 1
+        onActivated?.invoke()
+    }
 
     LaunchedEffect(autoRequestFocus) {
         if (autoRequestFocus) {
-            focusRequester.requestFocus()
+            requestKeyboard()
+        }
+    }
+
+    LaunchedEffect(refocusToken) {
+        if (refocusToken > 0) {
+            requestKeyboard()
+        }
+    }
+
+    LaunchedEffect(pendingKeyboardRequest) {
+        if (pendingKeyboardRequest <= 0) return@LaunchedEffect
+        focusRequester.requestFocus()
+        kotlinx.coroutines.delay(80)
+        view.post {
+            val focusedView = view.findFocus() ?: view
+            focusedView.requestFocus()
+            keyboardController?.show()
+            inputMethodManager?.showSoftInput(focusedView, InputMethodManager.SHOW_IMPLICIT)
+        }
+    }
+
+    LaunchedEffect(isFocused) {
+        if (!isFocused) return@LaunchedEffect
+        kotlinx.coroutines.delay(50)
+        view.post {
+            val focusedView = view.findFocus() ?: view
+            focusedView.requestFocus()
+            keyboardController?.show()
+            inputMethodManager?.showSoftInput(focusedView, InputMethodManager.SHOW_IMPLICIT)
         }
     }
 
     Surface(
         onClick = {
-            focusRequester.requestFocus()
-            keyboardController?.show()
-            onActivated?.invoke()
+            requestKeyboard()
         },
         modifier = modifier.height(40.dp),
         colors = ClickableSurfaceDefaults.colors(
@@ -692,7 +854,6 @@ private fun GuideSearchField(
                     modifier = Modifier
                         .fillMaxWidth()
                         .focusRequester(focusRequester)
-                        .focusable()
                         .onFocusChanged {
                             isFocused = it.isFocused
                             if (it.isFocused) {
@@ -703,7 +864,10 @@ private fun GuideSearchField(
                     singleLine = true,
                     cursorBrush = SolidColor(Primary),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                    keyboardActions = KeyboardActions(onSearch = { keyboardController?.hide() })
+                    keyboardActions = KeyboardActions(onSearch = {
+                        keyboardController?.hide()
+                        onSearch?.invoke()
+                    })
                 )
             }
         }
@@ -1330,7 +1494,7 @@ private fun ImmersiveGuideHero(
             }
 
             Column(
-                modifier = Modifier.widthIn(min = 112.dp, max = 128.dp),
+                modifier = Modifier.widthIn(min = 176.dp, max = 220.dp),
                 verticalArrangement = Arrangement.spacedBy(3.dp)
             ) {
                 GuideHeroBadge(text = stringResource(R.string.epg_schedule_summary_short, channelsWithSchedule, channelCount))
@@ -1381,7 +1545,9 @@ private fun GuideHeroBadge(
             text = text,
             modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
             style = MaterialTheme.typography.labelMedium,
-            color = if (highlight) accentColor else OnSurface
+            color = if (highlight) accentColor else OnSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
         )
     }
 }
@@ -1503,6 +1669,18 @@ private fun GuideSearchOverlay(
     onDismiss: () -> Unit
 ) {
     val searchFocusRequester = remember { FocusRequester() }
+    val applySearchAndClose = remember(query, onQueryChange, onDismiss) {
+        {
+            onQueryChange(query.trim())
+            onDismiss()
+        }
+    }
+    val clearAndClose = remember(onClear, onDismiss) {
+        {
+            onClear()
+            onDismiss()
+        }
+    }
 
     LaunchedEffect(Unit) {
         searchFocusRequester.requestFocus()
@@ -1534,15 +1712,22 @@ private fun GuideSearchOverlay(
                         style = MaterialTheme.typography.titleLarge,
                         color = OnSurface
                     )
-                    GuideShortcutChip(
-                        label = stringResource(R.string.settings_cancel),
-                        onClick = onDismiss
-                    )
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        GuideShortcutChip(
+                            label = stringResource(R.string.epg_search_apply),
+                            onClick = applySearchAndClose
+                        )
+                        GuideShortcutChip(
+                            label = stringResource(R.string.epg_clear_search_close),
+                            onClick = clearAndClose
+                        )
+                    }
                 }
                 GuideProgramSearchRow(
                     query = query,
                     onQueryChange = onQueryChange,
                     onClear = onClear,
+                    onSearch = applySearchAndClose,
                     focusRequester = searchFocusRequester,
                     autoRequestFocus = true,
                     contentPadding = PaddingValues(0.dp),
@@ -2617,8 +2802,9 @@ private fun GuideCategoryLauncherRow(
 private fun GuideCategoryPickerDialog(
     categories: List<Category>,
     selectedCategoryId: Long,
+    parentalControlLevel: Int,
     onDismiss: () -> Unit,
-    onCategorySelected: (Long) -> Unit
+    onCategorySelected: (Category) -> Unit
 ) {
     var query by rememberSaveable { mutableStateOf("") }
     var shouldFocusFirstCategory by rememberSaveable { mutableStateOf(true) }
@@ -2696,8 +2882,9 @@ private fun GuideCategoryPickerDialog(
                         key = { index, category -> epgCategoryKey(category, index) }
                     ) { _, category ->
                         val isSelected = category.id == selectedCategoryId
+                        val isLocked = isGuideCategoryLocked(category, parentalControlLevel)
                         Surface(
-                            onClick = { onCategorySelected(category.id) },
+                            onClick = { onCategorySelected(category) },
                             modifier = if (category.id == filteredCategories.firstOrNull()?.id) {
                                 Modifier.focusRequester(firstCategoryFocusRequester)
                             } else {
@@ -2735,7 +2922,13 @@ private fun GuideCategoryPickerDialog(
                                         style = MaterialTheme.typography.titleMedium,
                                         color = if (isSelected) Primary else OnSurface
                                     )
-                                    if (category.count > 0) {
+                                    if (isLocked) {
+                                        Text(
+                                            text = stringResource(R.string.settings_parental_control),
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = OnSurfaceDim
+                                        )
+                                    } else if (category.count > 0) {
                                         Text(
                                             text = "${category.count} channels",
                                             style = MaterialTheme.typography.bodySmall,
@@ -2773,6 +2966,23 @@ private fun epgCategoryKey(category: Category, index: Int): String {
 private fun epgChannelKey(channel: Channel, index: Int): String {
     val epgId = channel.guideLookupKey().orEmpty()
     return "channel:${channel.id}:${channel.streamId}:${epgId}:${channel.name.trim()}:$index"
+}
+
+private fun isGuideCategoryLocked(category: Category, parentalControlLevel: Int): Boolean =
+    parentalControlLevel == 1 && (category.isAdult || category.isUserProtected)
+
+private fun isGuideChannelLocked(
+    channel: Channel,
+    categoriesById: Map<Long, Category>,
+    parentalControlLevel: Int
+): Boolean {
+    if (parentalControlLevel != 1) {
+        return false
+    }
+    val categoryLocked = channel.categoryId?.let(categoriesById::get)?.let { category ->
+        category.isAdult || category.isUserProtected
+    } ?: false
+    return channel.isAdult || channel.isUserProtected || categoryLocked
 }
 
 @Composable

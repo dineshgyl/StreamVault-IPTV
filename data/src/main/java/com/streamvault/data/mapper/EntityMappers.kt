@@ -129,6 +129,34 @@ fun MovieEntity.toDomain() = Movie(
     streamId = streamId
 )
 
+fun MovieBrowseEntity.toDomain() = Movie(
+    id = id,
+    name = name,
+    posterUrl = posterUrl,
+    backdropUrl = null,
+    categoryId = categoryId,
+    categoryName = categoryName,
+    streamUrl = streamUrl,
+    containerExtension = containerExtension,
+    plot = null,
+    cast = null,
+    director = null,
+    genre = genre,
+    releaseDate = releaseDate,
+    duration = null,
+    durationSeconds = durationSeconds,
+    rating = rating,
+    year = year,
+    tmdbId = null,
+    youtubeTrailer = null,
+    providerId = providerId,
+    watchProgress = watchProgress,
+    lastWatchedAt = lastWatchedAt,
+    isAdult = isAdult,
+    isUserProtected = isUserProtected,
+    streamId = streamId
+)
+
 fun Movie.toEntity() = MovieEntity(
     id = id,
     streamId = streamId.takeIf { it > 0 } ?: id,
@@ -182,6 +210,29 @@ fun SeriesEntity.toDomain() = Series(
     seriesId = seriesId
 )
 
+fun SeriesBrowseEntity.toDomain() = Series(
+    id = id,
+    name = name,
+    posterUrl = posterUrl,
+    backdropUrl = null,
+    categoryId = categoryId,
+    categoryName = categoryName,
+    plot = null,
+    cast = null,
+    director = null,
+    genre = genre,
+    releaseDate = releaseDate,
+    rating = rating,
+    tmdbId = null,
+    youtubeTrailer = null,
+    episodeRunTime = null,
+    lastModified = lastModified,
+    providerId = providerId,
+    isAdult = isAdult,
+    isUserProtected = isUserProtected,
+    seriesId = seriesId
+)
+
 fun Series.toEntity() = SeriesEntity(
     id = id,
     seriesId = seriesId.takeIf { it > 0 } ?: id,
@@ -208,6 +259,28 @@ fun Series.toEntity() = SeriesEntity(
 // ── Episode ────────────────────────────────────────────────────────
 
 fun EpisodeEntity.toDomain() = Episode(
+    id = id,
+    title = title,
+    episodeNumber = episodeNumber,
+    seasonNumber = seasonNumber,
+    streamUrl = streamUrl,
+    containerExtension = containerExtension,
+    coverUrl = coverUrl,
+    plot = plot,
+    duration = duration,
+    durationSeconds = durationSeconds,
+    rating = rating,
+    releaseDate = releaseDate,
+    seriesId = seriesId,
+    providerId = providerId,
+    watchProgress = watchProgress,
+    lastWatchedAt = lastWatchedAt,
+    isAdult = isAdult,
+    isUserProtected = isUserProtected,
+    episodeId = episodeId
+)
+
+fun EpisodeBrowseEntity.toDomain() = Episode(
     id = id,
     title = title,
     episodeNumber = episodeNumber,
@@ -276,6 +349,22 @@ fun com.streamvault.domain.model.Category.toEntity(providerId: Long) = CategoryE
 // ── Program ────────────────────────────────────────────────────────
 
 fun ProgramEntity.toDomain() = Program(
+    id = id,
+    channelId = channelId,
+    title = title,
+    description = description,
+    startTime = startTime,
+    endTime = endTime,
+    lang = lang,
+    rating = rating,
+    imageUrl = imageUrl,
+    genre = genre,
+    category = category,
+    hasArchive = hasArchive,
+    providerId = providerId
+)
+
+fun ProgramBrowseEntity.toDomain() = Program(
     id = id,
     channelId = channelId,
     title = title,
@@ -367,6 +456,24 @@ fun PlaybackHistoryEntity.toDomain() = PlaybackHistory(
     episodeNumber = episodeNumber
 )
 
+fun PlaybackHistoryLiteEntity.toDomain() = PlaybackHistory(
+    id = id,
+    contentId = contentId,
+    contentType = contentType,
+    providerId = providerId,
+    title = title,
+    posterUrl = posterUrl,
+    streamUrl = streamUrl,
+    resumePositionMs = resumePositionMs,
+    totalDurationMs = totalDurationMs,
+    lastWatchedAt = lastWatchedAt,
+    watchCount = watchCount,
+    watchedStatus = watchedStatus.toPlaybackWatchedStatus(),
+    seriesId = seriesId,
+    seasonNumber = seasonNumber,
+    episodeNumber = episodeNumber
+)
+
 fun PlaybackHistory.toEntity() = PlaybackHistoryEntity(
     id = id,
     contentId = contentId,
@@ -405,8 +512,15 @@ fun SyncMetadataEntity.toDomain() = SyncMetadata(
         .getOrDefault(com.streamvault.domain.model.VodSyncMode.UNKNOWN),
     movieWarningsCount = movieWarningsCount,
     movieCatalogStale = movieCatalogStale,
+    liveAvoidFullUntil = liveAvoidFullUntil,
+    movieAvoidFullUntil = movieAvoidFullUntil,
+    seriesAvoidFullUntil = seriesAvoidFullUntil,
+    liveSequentialFailuresRemembered = liveSequentialFailuresRemembered,
+    liveHealthySyncStreak = liveHealthySyncStreak,
     movieParallelFailuresRemembered = movieParallelFailuresRemembered,
-    movieHealthySyncStreak = movieHealthySyncStreak
+    movieHealthySyncStreak = movieHealthySyncStreak,
+    seriesSequentialFailuresRemembered = seriesSequentialFailuresRemembered,
+    seriesHealthySyncStreak = seriesHealthySyncStreak
 )
 
 fun SyncMetadata.toEntity() = SyncMetadataEntity(
@@ -426,8 +540,15 @@ fun SyncMetadata.toEntity() = SyncMetadataEntity(
     movieSyncMode = movieSyncMode.name,
     movieWarningsCount = movieWarningsCount,
     movieCatalogStale = movieCatalogStale,
+    liveAvoidFullUntil = liveAvoidFullUntil,
+    movieAvoidFullUntil = movieAvoidFullUntil,
+    seriesAvoidFullUntil = seriesAvoidFullUntil,
+    liveSequentialFailuresRemembered = liveSequentialFailuresRemembered,
+    liveHealthySyncStreak = liveHealthySyncStreak,
     movieParallelFailuresRemembered = movieParallelFailuresRemembered,
-    movieHealthySyncStreak = movieHealthySyncStreak
+    movieHealthySyncStreak = movieHealthySyncStreak,
+    seriesSequentialFailuresRemembered = seriesSequentialFailuresRemembered,
+    seriesHealthySyncStreak = seriesHealthySyncStreak
 )
 
 private fun encodeQualityOptions(options: List<ChannelQualityOption>): String? {

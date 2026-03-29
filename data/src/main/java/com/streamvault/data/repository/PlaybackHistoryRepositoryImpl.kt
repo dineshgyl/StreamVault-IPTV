@@ -10,8 +10,6 @@ import com.streamvault.domain.model.PlaybackHistory
 import com.streamvault.domain.model.PlaybackWatchedStatus
 import com.streamvault.domain.model.Result
 import com.streamvault.domain.repository.PlaybackHistoryRepository
-import com.streamvault.domain.util.DEFAULT_PLAYBACK_COMPLETION_THRESHOLD
-import com.streamvault.domain.util.isPlaybackComplete
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
@@ -187,4 +185,17 @@ class PlaybackHistoryRepositoryImpl @Inject constructor(
             PlaybackWatchedStatus.IN_PROGRESS
         }
     }
+}
+
+private const val DEFAULT_PLAYBACK_COMPLETION_THRESHOLD = 0.95f
+
+private fun isPlaybackComplete(
+    progressMs: Long,
+    totalDurationMs: Long,
+    threshold: Float = DEFAULT_PLAYBACK_COMPLETION_THRESHOLD
+): Boolean {
+    if (progressMs <= 0L || totalDurationMs <= 0L) {
+        return false
+    }
+    return progressMs >= (totalDurationMs * threshold).toLong()
 }

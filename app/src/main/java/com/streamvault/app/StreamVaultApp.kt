@@ -7,6 +7,7 @@ import coil3.SingletonImageLoader
 import coil3.disk.DiskCache
 import coil3.memory.MemoryCache
 import coil3.request.crossfade
+import com.streamvault.app.diagnostics.RuntimeDiagnosticsManager
 import com.streamvault.app.ui.accessibility.isReducedMotionEnabled
 import dagger.hilt.android.HiltAndroidApp
 import kotlinx.coroutines.Dispatchers
@@ -20,9 +21,11 @@ import androidx.work.WorkManager
 
 @HiltAndroidApp
 class StreamVaultApp : Application(), SingletonImageLoader.Factory {
+    private val runtimeDiagnosticsManager by lazy { RuntimeDiagnosticsManager(this) }
 
     override fun onCreate() {
         super.onCreate()
+        runtimeDiagnosticsManager.start()
         
         // Schedule daily data maintenance: EPG pruning, stale-favorite cleanup, and DB compaction checks.
         // BLD-H02: Require network + device idle so the worker doesn't drain battery.
@@ -41,6 +44,11 @@ class StreamVaultApp : Application(), SingletonImageLoader.Factory {
             ExistingPeriodicWorkPolicy.KEEP,
             gcWorkRequest
         )
+    }
+
+    override fun onTerminate() {
+        runtimeDiagnosticsManager.stop()
+        super.onTerminate()
     }
 
     override fun newImageLoader(context: PlatformContext): ImageLoader {

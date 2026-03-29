@@ -77,28 +77,33 @@ data class XtreamSeriesItem(
     @SerialName("name") @Serializable(with = LenientStringSerializer::class) val name: String = "",
     @SerialName("cover") @Serializable(with = LenientNullableStringSerializer::class) val cover: String? = null,
     @SerialName("cover_big") @Serializable(with = LenientNullableStringSerializer::class) val coverBig: String? = null,
+    @SerialName("movie_image") @Serializable(with = LenientNullableStringSerializer::class) val movieImage: String? = null,
     @SerialName("plot") @Serializable(with = LenientNullableStringSerializer::class) val plot: String? = null,
+    @SerialName("description") @Serializable(with = LenientNullableStringSerializer::class) val description: String? = null,
     @SerialName("cast") @Serializable(with = LenientNullableStringSerializer::class) val cast: String? = null,
     @SerialName("director") @Serializable(with = LenientNullableStringSerializer::class) val director: String? = null,
     @SerialName("genre") @Serializable(with = LenientNullableStringSerializer::class) val genre: String? = null,
     @SerialName("releaseDate") @Serializable(with = LenientNullableStringSerializer::class) val releaseDate: String? = null,
+    @SerialName("releasedate") @Serializable(with = LenientNullableStringSerializer::class) val releaseDateAlt: String? = null,
     @SerialName("rating") @Serializable(with = LenientNullableStringSerializer::class) val rating: String? = null,
     @SerialName("rating_5based") @Serializable(with = LenientNullableStringSerializer::class) val rating5based: String? = null,
     @SerialName("backdrop_path") @Serializable(with = LenientNullableStringListSerializer::class) val backdropPath: List<String>? = null,
     @SerialName("youtube_trailer") @Serializable(with = LenientNullableStringSerializer::class) val youtubeTrailer: String? = null,
     @SerialName("trailer") @Serializable(with = LenientNullableStringSerializer::class) val trailer: String? = null,
     @SerialName("tmdb") @Serializable(with = LenientNullableStringSerializer::class) val tmdb: String? = null,
+    @SerialName("tmdb_id") @Serializable(with = LenientNullableStringSerializer::class) val tmdbId: String? = null,
     @SerialName("episode_run_time") @Serializable(with = LenientNullableStringSerializer::class) val episodeRunTime: String? = null,
     @SerialName("category_id") @Serializable(with = LenientNullableStringSerializer::class) val categoryId: String? = null,
+    @SerialName("category_name") @Serializable(with = LenientNullableStringSerializer::class) val categoryName: String? = null,
     @SerialName("last_modified") @Serializable(with = LenientNullableStringSerializer::class) val lastModified: String? = null,
     @SerialName("is_adult") @Serializable(with = LenientNullableBooleanSerializer::class) val isAdult: Boolean? = null
 )
 
-@Serializable
+@Serializable(with = XtreamSeriesInfoResponseSerializer::class)
 data class XtreamSeriesInfoResponse(
-    @SerialName("info") val info: XtreamSeriesItem? = null,
-    @SerialName("episodes") val episodes: Map<String, List<XtreamEpisode>> = emptyMap(),
-    @SerialName("seasons") val seasons: List<XtreamSeason> = emptyList()
+    val info: XtreamSeriesItem? = null,
+    val episodes: Map<String, List<XtreamEpisode>> = emptyMap(),
+    val seasons: List<XtreamSeason> = emptyList()
 )
 
 @Serializable
@@ -151,6 +156,7 @@ data class XtreamVodInfo(
     @SerialName("genre") @Serializable(with = LenientNullableStringSerializer::class) val genre: String? = null,
     @SerialName("releasedate") @Serializable(with = LenientNullableStringSerializer::class) val releaseDate: String? = null,
     @SerialName("rating") @Serializable(with = LenientNullableStringSerializer::class) val rating: String? = null,
+    @SerialName("rating_5based") @Serializable(with = LenientNullableStringSerializer::class) val rating5based: String? = null,
     @SerialName("youtube_trailer") @Serializable(with = LenientNullableStringSerializer::class) val youtubeTrailer: String? = null,
     @SerialName("duration_secs") @Serializable(with = LenientIntSerializer::class) val durationSecs: Int = 0,
     @SerialName("duration") @Serializable(with = LenientNullableStringSerializer::class) val duration: String? = null,

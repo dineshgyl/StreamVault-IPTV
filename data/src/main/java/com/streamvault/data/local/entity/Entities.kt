@@ -70,7 +70,29 @@ data class ChannelEntity(
     @ColumnInfo(name = "is_user_protected") val isUserProtected: Boolean = false,
     @ColumnInfo(name = "logical_group_id") val logicalGroupId: String = "",
     @ColumnInfo(name = "error_count") val errorCount: Int = 0,
-    @ColumnInfo(name = "quality_options_json") val qualityOptionsJson: String? = null
+    @ColumnInfo(name = "quality_options_json") val qualityOptionsJson: String? = null,
+    @ColumnInfo(name = "sync_fingerprint") val syncFingerprint: String = ""
+)
+
+data class ChannelBrowseEntity(
+    val id: Long = 0,
+    @ColumnInfo(name = "stream_id") val streamId: Long = 0,
+    val name: String,
+    @ColumnInfo(name = "logo_url") val logoUrl: String? = null,
+    @ColumnInfo(name = "group_title") val groupTitle: String? = null,
+    @ColumnInfo(name = "category_id") val categoryId: Long? = null,
+    @ColumnInfo(name = "category_name") val categoryName: String? = null,
+    @ColumnInfo(name = "stream_url") val streamUrl: String = "",
+    @ColumnInfo(name = "epg_channel_id") val epgChannelId: String? = null,
+    val number: Int = 0,
+    @ColumnInfo(name = "catch_up_supported") val catchUpSupported: Boolean = false,
+    @ColumnInfo(name = "catch_up_days") val catchUpDays: Int = 0,
+    val catchUpSource: String? = null,
+    @ColumnInfo(name = "provider_id") val providerId: Long = 0,
+    @ColumnInfo(name = "is_adult") val isAdult: Boolean = false,
+    @ColumnInfo(name = "is_user_protected") val isUserProtected: Boolean = false,
+    @ColumnInfo(name = "logical_group_id") val logicalGroupId: String = "",
+    @ColumnInfo(name = "error_count") val errorCount: Int = 0
 )
 
 @Entity(
@@ -131,6 +153,28 @@ data class MovieEntity(
     @ColumnInfo(name = "watch_progress") val watchProgress: Long = 0L,
     @ColumnInfo(name = "last_watched_at") val lastWatchedAt: Long = 0L,
     @ColumnInfo(name = "is_adult") val isAdult: Boolean = false,
+    @ColumnInfo(name = "is_user_protected") val isUserProtected: Boolean = false,
+    @ColumnInfo(name = "sync_fingerprint") val syncFingerprint: String = ""
+)
+
+data class MovieBrowseEntity(
+    val id: Long = 0,
+    @ColumnInfo(name = "stream_id") val streamId: Long = 0,
+    val name: String,
+    @ColumnInfo(name = "poster_url") val posterUrl: String? = null,
+    @ColumnInfo(name = "category_id") val categoryId: Long? = null,
+    @ColumnInfo(name = "category_name") val categoryName: String? = null,
+    @ColumnInfo(name = "stream_url") val streamUrl: String = "",
+    @ColumnInfo(name = "container_extension") val containerExtension: String? = null,
+    val genre: String? = null,
+    @ColumnInfo(name = "release_date") val releaseDate: String? = null,
+    @ColumnInfo(name = "duration_seconds") val durationSeconds: Int = 0,
+    val rating: Float = 0f,
+    val year: String? = null,
+    @ColumnInfo(name = "provider_id") val providerId: Long = 0,
+    @ColumnInfo(name = "watch_progress") val watchProgress: Long = 0L,
+    @ColumnInfo(name = "last_watched_at") val lastWatchedAt: Long = 0L,
+    @ColumnInfo(name = "is_adult") val isAdult: Boolean = false,
     @ColumnInfo(name = "is_user_protected") val isUserProtected: Boolean = false
 )
 
@@ -166,6 +210,23 @@ data class SeriesEntity(
     @ColumnInfo(name = "tmdb_id") val tmdbId: Long? = null,
     @ColumnInfo(name = "youtube_trailer") val youtubeTrailer: String? = null,
     @ColumnInfo(name = "episode_run_time") val episodeRunTime: String? = null,
+    @ColumnInfo(name = "last_modified") val lastModified: Long = 0L,
+    @ColumnInfo(name = "provider_id") val providerId: Long = 0,
+    @ColumnInfo(name = "is_adult") val isAdult: Boolean = false,
+    @ColumnInfo(name = "is_user_protected") val isUserProtected: Boolean = false,
+    @ColumnInfo(name = "sync_fingerprint") val syncFingerprint: String = ""
+)
+
+data class SeriesBrowseEntity(
+    val id: Long = 0,
+    @ColumnInfo(name = "series_id") val seriesId: Long = 0,
+    val name: String,
+    @ColumnInfo(name = "poster_url") val posterUrl: String? = null,
+    @ColumnInfo(name = "category_id") val categoryId: Long? = null,
+    @ColumnInfo(name = "category_name") val categoryName: String? = null,
+    val genre: String? = null,
+    @ColumnInfo(name = "release_date") val releaseDate: String? = null,
+    val rating: Float = 0f,
     @ColumnInfo(name = "last_modified") val lastModified: Long = 0L,
     @ColumnInfo(name = "provider_id") val providerId: Long = 0,
     @ColumnInfo(name = "is_adult") val isAdult: Boolean = false,
@@ -235,6 +296,28 @@ data class EpisodeEntity(
     @ColumnInfo(name = "is_user_protected") val isUserProtected: Boolean = false
 )
 
+data class EpisodeBrowseEntity(
+    val id: Long = 0,
+    @ColumnInfo(name = "episode_id") val episodeId: Long = 0,
+    val title: String,
+    @ColumnInfo(name = "episode_number") val episodeNumber: Int,
+    @ColumnInfo(name = "season_number") val seasonNumber: Int,
+    @ColumnInfo(name = "stream_url") val streamUrl: String = "",
+    @ColumnInfo(name = "container_extension") val containerExtension: String? = null,
+    @ColumnInfo(name = "cover_url") val coverUrl: String? = null,
+    val plot: String? = null,
+    val duration: String? = null,
+    @ColumnInfo(name = "duration_seconds") val durationSeconds: Int = 0,
+    val rating: Float = 0f,
+    @ColumnInfo(name = "release_date") val releaseDate: String? = null,
+    @ColumnInfo(name = "series_id") val seriesId: Long = 0,
+    @ColumnInfo(name = "provider_id") val providerId: Long = 0,
+    @ColumnInfo(name = "watch_progress") val watchProgress: Long = 0L,
+    @ColumnInfo(name = "last_watched_at") val lastWatchedAt: Long = 0L,
+    @ColumnInfo(name = "is_adult") val isAdult: Boolean = false,
+    @ColumnInfo(name = "is_user_protected") val isUserProtected: Boolean = false
+)
+
 @Entity(
     tableName = "categories",
     foreignKeys = [ForeignKey(
@@ -258,7 +341,146 @@ data class CategoryEntity(
     val type: ContentType = ContentType.LIVE,
     @ColumnInfo(name = "provider_id") val providerId: Long = 0,
     @ColumnInfo(name = "is_adult") val isAdult: Boolean = false,
-    @ColumnInfo(name = "is_user_protected") val isUserProtected: Boolean = false
+    @ColumnInfo(name = "is_user_protected") val isUserProtected: Boolean = false,
+    @ColumnInfo(name = "sync_fingerprint") val syncFingerprint: String = ""
+)
+
+@Entity(
+    tableName = "channel_import_stage",
+    primaryKeys = ["session_id", "provider_id", "stream_id"],
+    foreignKeys = [ForeignKey(
+        entity = ProviderEntity::class,
+        parentColumns = ["id"],
+        childColumns = ["provider_id"],
+        onDelete = ForeignKey.CASCADE
+    )],
+    indices = [
+        Index(value = ["provider_id"]),
+        Index(value = ["session_id", "provider_id"])
+    ]
+)
+data class ChannelImportStageEntity(
+    @ColumnInfo(name = "session_id") val sessionId: Long,
+    @ColumnInfo(name = "provider_id") val providerId: Long,
+    @ColumnInfo(name = "stream_id") val streamId: Long,
+    val name: String,
+    @ColumnInfo(name = "logo_url") val logoUrl: String? = null,
+    @ColumnInfo(name = "group_title") val groupTitle: String? = null,
+    @ColumnInfo(name = "category_id") val categoryId: Long? = null,
+    @ColumnInfo(name = "category_name") val categoryName: String? = null,
+    @ColumnInfo(name = "stream_url") val streamUrl: String = "",
+    @ColumnInfo(name = "epg_channel_id") val epgChannelId: String? = null,
+    val number: Int = 0,
+    @ColumnInfo(name = "catch_up_supported") val catchUpSupported: Boolean = false,
+    @ColumnInfo(name = "catch_up_days") val catchUpDays: Int = 0,
+    val catchUpSource: String? = null,
+    @ColumnInfo(name = "is_adult") val isAdult: Boolean = false,
+    @ColumnInfo(name = "logical_group_id") val logicalGroupId: String = "",
+    @ColumnInfo(name = "error_count") val errorCount: Int = 0,
+    @ColumnInfo(name = "sync_fingerprint") val syncFingerprint: String = ""
+)
+
+@Entity(
+    tableName = "movie_import_stage",
+    primaryKeys = ["session_id", "provider_id", "stream_id"],
+    foreignKeys = [ForeignKey(
+        entity = ProviderEntity::class,
+        parentColumns = ["id"],
+        childColumns = ["provider_id"],
+        onDelete = ForeignKey.CASCADE
+    )],
+    indices = [
+        Index(value = ["provider_id"]),
+        Index(value = ["session_id", "provider_id"])
+    ]
+)
+data class MovieImportStageEntity(
+    @ColumnInfo(name = "session_id") val sessionId: Long,
+    @ColumnInfo(name = "provider_id") val providerId: Long,
+    @ColumnInfo(name = "stream_id") val streamId: Long,
+    val name: String,
+    @ColumnInfo(name = "poster_url") val posterUrl: String? = null,
+    @ColumnInfo(name = "backdrop_url") val backdropUrl: String? = null,
+    @ColumnInfo(name = "category_id") val categoryId: Long? = null,
+    @ColumnInfo(name = "category_name") val categoryName: String? = null,
+    @ColumnInfo(name = "stream_url") val streamUrl: String = "",
+    @ColumnInfo(name = "container_extension") val containerExtension: String? = null,
+    val plot: String? = null,
+    val cast: String? = null,
+    val director: String? = null,
+    val genre: String? = null,
+    @ColumnInfo(name = "release_date") val releaseDate: String? = null,
+    val duration: String? = null,
+    @ColumnInfo(name = "duration_seconds") val durationSeconds: Int = 0,
+    val rating: Float = 0f,
+    val year: String? = null,
+    @ColumnInfo(name = "tmdb_id") val tmdbId: Long? = null,
+    @ColumnInfo(name = "youtube_trailer") val youtubeTrailer: String? = null,
+    @ColumnInfo(name = "is_adult") val isAdult: Boolean = false,
+    @ColumnInfo(name = "sync_fingerprint") val syncFingerprint: String = ""
+)
+
+@Entity(
+    tableName = "series_import_stage",
+    primaryKeys = ["session_id", "provider_id", "series_id"],
+    foreignKeys = [ForeignKey(
+        entity = ProviderEntity::class,
+        parentColumns = ["id"],
+        childColumns = ["provider_id"],
+        onDelete = ForeignKey.CASCADE
+    )],
+    indices = [
+        Index(value = ["provider_id"]),
+        Index(value = ["session_id", "provider_id"])
+    ]
+)
+data class SeriesImportStageEntity(
+    @ColumnInfo(name = "session_id") val sessionId: Long,
+    @ColumnInfo(name = "provider_id") val providerId: Long,
+    @ColumnInfo(name = "series_id") val seriesId: Long,
+    val name: String,
+    @ColumnInfo(name = "poster_url") val posterUrl: String? = null,
+    @ColumnInfo(name = "backdrop_url") val backdropUrl: String? = null,
+    @ColumnInfo(name = "category_id") val categoryId: Long? = null,
+    @ColumnInfo(name = "category_name") val categoryName: String? = null,
+    val plot: String? = null,
+    val cast: String? = null,
+    val director: String? = null,
+    val genre: String? = null,
+    @ColumnInfo(name = "release_date") val releaseDate: String? = null,
+    val rating: Float = 0f,
+    @ColumnInfo(name = "tmdb_id") val tmdbId: Long? = null,
+    @ColumnInfo(name = "youtube_trailer") val youtubeTrailer: String? = null,
+    @ColumnInfo(name = "episode_run_time") val episodeRunTime: String? = null,
+    @ColumnInfo(name = "last_modified") val lastModified: Long = 0L,
+    @ColumnInfo(name = "is_adult") val isAdult: Boolean = false,
+    @ColumnInfo(name = "sync_fingerprint") val syncFingerprint: String = ""
+)
+
+@Entity(
+    tableName = "category_import_stage",
+    primaryKeys = ["session_id", "provider_id", "category_id", "type"],
+    foreignKeys = [ForeignKey(
+        entity = ProviderEntity::class,
+        parentColumns = ["id"],
+        childColumns = ["provider_id"],
+        onDelete = ForeignKey.CASCADE
+    )],
+    indices = [
+        Index(value = ["provider_id"]),
+        Index(value = ["session_id", "provider_id"]),
+        Index(value = ["provider_id", "type"])
+    ]
+)
+data class CategoryImportStageEntity(
+    @ColumnInfo(name = "session_id") val sessionId: Long,
+    @ColumnInfo(name = "provider_id") val providerId: Long,
+    @ColumnInfo(name = "category_id") val categoryId: Long,
+    val name: String,
+    @ColumnInfo(name = "parent_id") val parentId: Long? = null,
+    val type: ContentType = ContentType.LIVE,
+    @ColumnInfo(name = "is_adult") val isAdult: Boolean = false,
+    @ColumnInfo(name = "sync_fingerprint") val syncFingerprint: String = ""
 )
 
 @Entity(
@@ -274,6 +496,22 @@ data class CategoryEntity(
 )
 data class ProgramEntity(
     @PrimaryKey(autoGenerate = true)
+    val id: Long = 0,
+    @ColumnInfo(name = "provider_id") val providerId: Long = 0,
+    @ColumnInfo(name = "channel_id") val channelId: String,
+    val title: String,
+    val description: String = "",
+    @ColumnInfo(name = "start_time") val startTime: Long = 0,
+    @ColumnInfo(name = "end_time") val endTime: Long = 0,
+    val lang: String = "",
+    val rating: String? = null,
+    @ColumnInfo(name = "image_url") val imageUrl: String? = null,
+    val genre: String? = null,
+    val category: String? = null,
+    @ColumnInfo(name = "has_archive") val hasArchive: Boolean = false
+)
+
+data class ProgramBrowseEntity(
     val id: Long = 0,
     @ColumnInfo(name = "provider_id") val providerId: Long = 0,
     @ColumnInfo(name = "channel_id") val channelId: String,
@@ -368,6 +606,24 @@ data class PlaybackHistoryEntity(
     @ColumnInfo(name = "episode_number") val episodeNumber: Int? = null
 )
 
+data class PlaybackHistoryLiteEntity(
+    val id: Long = 0,
+    @ColumnInfo(name = "content_id") val contentId: Long,
+    @ColumnInfo(name = "content_type") val contentType: ContentType,
+    @ColumnInfo(name = "provider_id") val providerId: Long,
+    val title: String = "",
+    @ColumnInfo(name = "poster_url") val posterUrl: String? = null,
+    @ColumnInfo(name = "stream_url") val streamUrl: String = "",
+    @ColumnInfo(name = "resume_position_ms") val resumePositionMs: Long = 0,
+    @ColumnInfo(name = "total_duration_ms") val totalDurationMs: Long = 0,
+    @ColumnInfo(name = "last_watched_at") val lastWatchedAt: Long = 0,
+    @ColumnInfo(name = "watch_count") val watchCount: Int = 1,
+    @ColumnInfo(name = "watched_status") val watchedStatus: String = "IN_PROGRESS",
+    @ColumnInfo(name = "series_id") val seriesId: Long? = null,
+    @ColumnInfo(name = "season_number") val seasonNumber: Int? = null,
+    @ColumnInfo(name = "episode_number") val episodeNumber: Int? = null
+)
+
 @Entity(
     tableName = "sync_metadata",
     foreignKeys = [ForeignKey(
@@ -395,6 +651,13 @@ data class SyncMetadataEntity(
     @ColumnInfo(name = "movie_sync_mode") val movieSyncMode: String = "UNKNOWN",
     @ColumnInfo(name = "movie_warnings_count") val movieWarningsCount: Int = 0,
     @ColumnInfo(name = "movie_catalog_stale") val movieCatalogStale: Boolean = false,
+    @ColumnInfo(name = "live_avoid_full_until") val liveAvoidFullUntil: Long = 0,
+    @ColumnInfo(name = "movie_avoid_full_until") val movieAvoidFullUntil: Long = 0,
+    @ColumnInfo(name = "series_avoid_full_until") val seriesAvoidFullUntil: Long = 0,
+    @ColumnInfo(name = "live_sequential_failures_remembered") val liveSequentialFailuresRemembered: Boolean = false,
+    @ColumnInfo(name = "live_healthy_sync_streak") val liveHealthySyncStreak: Int = 0,
     @ColumnInfo(name = "movie_parallel_failures_remembered") val movieParallelFailuresRemembered: Boolean = false,
-    @ColumnInfo(name = "movie_healthy_sync_streak") val movieHealthySyncStreak: Int = 0
+    @ColumnInfo(name = "movie_healthy_sync_streak") val movieHealthySyncStreak: Int = 0,
+    @ColumnInfo(name = "series_sequential_failures_remembered") val seriesSequentialFailuresRemembered: Boolean = false,
+    @ColumnInfo(name = "series_healthy_sync_streak") val seriesHealthySyncStreak: Int = 0
 )

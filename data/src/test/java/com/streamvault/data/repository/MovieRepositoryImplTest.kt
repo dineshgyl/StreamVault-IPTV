@@ -7,8 +7,9 @@ import com.streamvault.data.local.dao.MovieDao
 import com.streamvault.data.local.dao.PlaybackHistoryDao
 import com.streamvault.data.local.dao.ProviderDao
 import com.streamvault.data.local.entity.FavoriteEntity
+import com.streamvault.data.local.entity.MovieBrowseEntity
 import com.streamvault.data.local.entity.MovieEntity
-import com.streamvault.data.local.entity.PlaybackHistoryEntity
+import com.streamvault.data.local.entity.PlaybackHistoryLiteEntity
 import com.streamvault.data.local.entity.ProviderEntity
 import com.streamvault.data.preferences.PreferencesRepository
 import com.streamvault.data.remote.dto.XtreamCategory
@@ -45,7 +46,6 @@ class MovieRepositoryImplTest {
             id = 1L,
             name = "Space Run",
             genre = "Action, Sci-Fi",
-            cast = "Ava Stone",
             categoryId = 10L,
             rating = 7.2f
         )
@@ -53,7 +53,6 @@ class MovieRepositoryImplTest {
             id = 2L,
             name = "Galaxy Pursuit",
             genre = "Sci-Fi Action",
-            cast = "Ava Stone",
             categoryId = 10L,
             rating = 8.8f
         )
@@ -61,17 +60,18 @@ class MovieRepositoryImplTest {
             id = 3L,
             name = "Quiet Tea",
             genre = "Drama",
-            cast = "Noah Reed",
             categoryId = 11L,
             rating = 9.5f
         )
 
-        stubVisibleMovies(listOf(watchedMovie, recommendedMovie, unrelatedMovie))
+        whenever(preferencesRepository.parentalControlLevel).thenReturn(flowOf(0))
+        whenever(movieDao.getTopRatedPreview(7L, 48)).thenReturn(flowOf(listOf(recommendedMovie, unrelatedMovie, watchedMovie)))
+        whenever(movieDao.getFreshPreview(7L, 48)).thenReturn(flowOf(listOf(recommendedMovie, unrelatedMovie, watchedMovie)))
         whenever(favoriteDao.getAllByType(ContentType.MOVIE.name)).thenReturn(flowOf(emptyList()))
-        whenever(playbackHistoryDao.getRecentlyWatchedByProvider(eq(7L), any())).thenReturn(
+        whenever(playbackHistoryDao.getRecentlyWatchedByProvider(eq(7L), eq(24))).thenReturn(
             flowOf(
                 listOf(
-                    PlaybackHistoryEntity(
+                    PlaybackHistoryLiteEntity(
                         contentId = watchedMovie.id,
                         contentType = ContentType.MOVIE,
                         providerId = 7L,
@@ -92,12 +92,11 @@ class MovieRepositoryImplTest {
     }
 
     @Test
-    fun `getRelatedContent ranks shared genre and cast ahead of category only matches`() = runTest {
+    fun `getRelatedContent ranks shared genre ahead of category only matches`() = runTest {
         val targetMovie = movieEntity(
             id = 1L,
             name = "Space Run",
             genre = "Action, Sci-Fi",
-            cast = "Ava Stone",
             categoryId = 10L,
             rating = 7.2f
         )
@@ -105,7 +104,6 @@ class MovieRepositoryImplTest {
             id = 2L,
             name = "Galaxy Pursuit",
             genre = "Sci-Fi Action",
-            cast = "Ava Stone",
             categoryId = 10L,
             rating = 8.8f
         )
@@ -113,12 +111,23 @@ class MovieRepositoryImplTest {
             id = 3L,
             name = "Harbor Escape",
             genre = "Thriller",
-            cast = "Milo Hart",
             categoryId = 10L,
             rating = 9.0f
         )
 
-        stubVisibleMovies(listOf(targetMovie, closeMatch, categoryOnly))
+        whenever(preferencesRepository.parentalControlLevel).thenReturn(flowOf(0))
+        whenever(movieDao.getCountByCategory(7L, 10L)).thenReturn(flowOf(1))
+        whenever(movieDao.getById(targetMovie.id)).thenReturn(
+            movieRecord(
+                id = targetMovie.id,
+                name = targetMovie.name,
+                genre = targetMovie.genre.orEmpty(),
+                categoryId = targetMovie.categoryId ?: 0L,
+                rating = targetMovie.rating
+            )
+        )
+        whenever(movieDao.getByCategoryPreview(7L, 10L, 48)).thenReturn(flowOf(listOf(targetMovie, closeMatch, categoryOnly)))
+        whenever(movieDao.getTopRatedPreview(7L, 32)).thenReturn(flowOf(listOf(closeMatch, categoryOnly)))
 
         val repository = createRepository()
 
@@ -176,16 +185,27 @@ class MovieRepositoryImplTest {
         xtreamStreamUrlResolver = xtreamStreamUrlResolver
     )
 
-    private fun stubVisibleMovies(movies: List<MovieEntity>) {
-        whenever(preferencesRepository.parentalControlLevel).thenReturn(flowOf(0))
-        whenever(movieDao.getByProvider(7L)).thenReturn(flowOf(movies))
-    }
-
     private fun movieEntity(
         id: Long,
         name: String,
         genre: String,
-        cast: String,
+        categoryId: Long,
+        rating: Float
+    ) = MovieBrowseEntity(
+        id = id,
+        streamId = id,
+        name = name,
+        genre = genre,
+        categoryId = categoryId,
+        providerId = 7L,
+        rating = rating,
+        streamUrl = "https://example.com/$id.m3u8"
+    )
+
+    private fun movieRecord(
+        id: Long,
+        name: String,
+        genre: String,
         categoryId: Long,
         rating: Float
     ) = MovieEntity(
@@ -193,7 +213,6 @@ class MovieRepositoryImplTest {
         streamId = id,
         name = name,
         genre = genre,
-        cast = cast,
         categoryId = categoryId,
         providerId = 7L,
         rating = rating,

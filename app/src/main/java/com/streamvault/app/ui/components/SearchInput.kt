@@ -14,6 +14,7 @@ import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -94,13 +95,6 @@ fun SearchInput(
         contentAlignment = Alignment.CenterStart
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                imageVector = Icons.Default.Search,
-                contentDescription = null,
-                tint = if (isFocused) Primary else OnSurfaceDim,
-                modifier = Modifier.padding(end = 6.dp)
-            )
-
             Box(modifier = Modifier.weight(1f)) {
                 if (value.isEmpty() && !isFocused) {
                     Text(
@@ -124,6 +118,23 @@ fun SearchInput(
                     keyboardActions = KeyboardActions(onSearch = { onSearch() })
                 )
             }
+
+            Icon(
+                imageVector = if (value.isBlank()) Icons.Default.Search else Icons.Default.Close,
+                contentDescription = null,
+                tint = if (value.isBlank()) {
+                    if (isFocused) Primary else OnSurfaceDim
+                } else {
+                    OnSurface
+                },
+                modifier = Modifier
+                    .padding(start = 6.dp)
+                    .clickable(enabled = enabled && value.isNotBlank()) {
+                        onValueChange("")
+                        focusRequester.requestFocus()
+                        keyboardController?.show()
+                    }
+            )
         }
     }
 }

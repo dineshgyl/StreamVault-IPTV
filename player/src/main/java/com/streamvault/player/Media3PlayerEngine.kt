@@ -96,6 +96,7 @@ class Media3PlayerEngine @Inject constructor(
     private var playbackStarted = false
     private var retryAttempt = 0
     private var retryJob: Job? = null
+    private var retryGeneration = 0L
 
     private val _playbackState = MutableStateFlow(PlaybackState.IDLE)
     override val playbackState: StateFlow<PlaybackState> = _playbackState.asStateFlow()
@@ -144,12 +145,14 @@ class Media3PlayerEngine @Inject constructor(
     override val isMuted: StateFlow<Boolean> = audioFocusController.isMuted
 
     private val statsCollector = PlayerStatsCollector(
-        scope = scope,
+        scopeProvider = { scope },
         currentPosition = _currentPosition,
         duration = _duration,
         videoFormat = _videoFormat,
         playerStats = _playerStats
-    )
+    ).also {
+        it.bind { exoPlayer }
+    }
     private val dataSourceFactoryProvider = PlayerDataSourceFactoryProvider(okHttpClient)
     private val mediaSourceFactory = PlayerMediaSourceFactory(dataSourceFactoryProvider)
     private val preloadCoordinator = PreloadCoordinator()
@@ -323,7 +326,6 @@ class Media3PlayerEngine @Inject constructor(
         supervisorJob.cancel()
         supervisorJob = SupervisorJob()
         scope = CoroutineScope(Dispatchers.Main.immediate + supervisorJob)
-        statsCollector.bind { exoPlayer }
     }
 
     private fun prepareInternal(
@@ -333,6 +335,8 @@ class Media3PlayerEngine @Inject constructor(
         autoPlay: Boolean
     ) {
         retryJob?.cancel()
+        retryJob = null
+        retryGeneration++
         lastStreamInfo = streamInfo
         val mediaId = mediaSourceFactory.mediaIdFor(streamInfo)
         if (!preserveRetryState || lastMediaId != mediaId) {
@@ -599,6 +603,8 @@ class Media3PlayerEngine @Inject constructor(
     }
 
     private fun handlePlaybackError(error: PlaybackException) {
+        retryJob?.cancel()
+        retryJob = null
         val streamInfo = lastStreamInfo
         val mediaId = lastMediaId
         val retryPolicy = currentRetryPolicy
@@ -628,6 +634,7 @@ class Media3PlayerEngine @Inject constructor(
         val nextAttempt = retryAttempt + 1
         if (retryPolicy.shouldRetry(error, retryContext, playbackStarted, nextAttempt)) {
             val delayMs = retryPolicy.retryDelayMs(error, nextAttempt)
+            val scheduledRetryGeneration = retryGeneration
             retryAttempt = nextAttempt
             _retryStatus.value = PlayerRetryStatus(
                 attempt = nextAttempt,
@@ -640,6 +647,14 @@ class Media3PlayerEngine @Inject constructor(
             )
             retryJob = scope.launch {
                 delay(delayMs)
+                if (
+                    scheduledRetryGeneration != retryGeneration ||
+                    lastMediaId != mediaId ||
+                    retryAttempt != nextAttempt
+                ) {
+                    return@launch
+                }
+                retryJob = null
                 prepareInternal(streamInfo, preserveRetryState = true, seekPositionMs = null, autoPlay = true)
             }
             return

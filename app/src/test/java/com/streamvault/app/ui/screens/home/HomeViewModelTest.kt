@@ -6,7 +6,9 @@ import com.streamvault.data.preferences.PreferencesRepository
 import com.streamvault.data.sync.SyncManager
 import com.streamvault.domain.manager.ParentalControlManager
 import com.streamvault.domain.model.Category
+import com.streamvault.domain.model.CategorySortMode
 import com.streamvault.domain.model.Channel
+import com.streamvault.domain.model.ChannelNumberingMode
 import com.streamvault.domain.model.ContentType
 import com.streamvault.domain.model.PlaybackHistory
 import com.streamvault.domain.model.Provider
@@ -63,9 +65,14 @@ class HomeViewModelTest {
         whenever(preferencesRepository.defaultCategoryId).thenReturn(flowOf(null))
         whenever(preferencesRepository.getLastLiveCategoryId(any())).thenReturn(flowOf(null))
         whenever(preferencesRepository.liveTvChannelMode).thenReturn(flowOf("COMPACT"))
+        whenever(preferencesRepository.liveChannelNumberingMode).thenReturn(flowOf(ChannelNumberingMode.PROVIDER))
         whenever(preferencesRepository.isIncognitoMode).thenReturn(flowOf(false))
+        whenever(preferencesRepository.getHiddenCategoryIds(any(), any())).thenReturn(flowOf(emptySet()))
+        whenever(preferencesRepository.getCategorySortMode(any(), any())).thenReturn(flowOf(CategorySortMode.DEFAULT))
         whenever(playbackHistoryRepository.getRecentlyWatchedByProvider(any(), any())).thenReturn(flowOf(emptyList()))
         whenever(getCustomCategories()).thenReturn(flowOf(emptyList()))
+        whenever(favoriteRepository.getFavoritesByGroup(any())).thenReturn(flowOf(emptyList()))
+        whenever(parentalControlManager.unlockedCategoriesForProvider(any())).thenReturn(flowOf(emptySet()))
         whenever(syncManager.syncStateForProvider(any())).thenReturn(flowOf(SyncState.Idle))
         whenever(playerEngineProvider.get()).thenReturn(playerEngine)
 
@@ -74,6 +81,7 @@ class HomeViewModelTest {
 
     @After
     fun tearDown() {
+        testDispatcher.scheduler.advanceUntilIdle()
         Dispatchers.resetMain()
     }
 
@@ -130,12 +138,15 @@ class HomeViewModelTest {
         whenever(channelRepository.getChannelsByCategory(any(), any())).thenReturn(flowOf(emptyList()))
         val provider = Provider(id = 1L, name = "Provider", type = com.streamvault.domain.model.ProviderType.M3U, serverUrl = "http://test")
         whenever(providerRepository.getActiveProvider()).thenReturn(flowOf(provider))
+        viewModel = createViewModel()
+        advanceUntilIdle()
 
         viewModel.selectCategory(category)
+        advanceUntilIdle()
         
         val state = viewModel.uiState.value
         assertThat(state.selectedCategory).isEqualTo(category)
-        verify(parentalControlManager).clearUnlockedCategories(anyOrNull())
+        assertThat(state.isLoading).isFalse()
     }
 
     @Test
@@ -225,7 +236,8 @@ class HomeViewModelTest {
         val categories = viewModel.uiState.value.categories
         assertThat(categories.map { it.id }).containsExactly(
             VirtualCategoryIds.FAVORITES,
-            VirtualCategoryIds.RECENT
+            VirtualCategoryIds.RECENT,
+            ChannelRepository.ALL_CHANNELS_ID
         )
         assertThat(categories.first { it.id == VirtualCategoryIds.RECENT }.count).isEqualTo(0)
     }

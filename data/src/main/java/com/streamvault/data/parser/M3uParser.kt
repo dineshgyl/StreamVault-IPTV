@@ -369,19 +369,6 @@ class M3uParser {
         return attributes
     }
 
-    internal fun isVodEntry(entry: M3uEntry): Boolean {
-        val url = entry.url.lowercase()
-        val group = entry.groupTitle.lowercase()
-
-        return url.endsWith(".mp4") ||
-                url.endsWith(".mkv") ||
-                url.endsWith(".avi") ||
-                url.contains("/movie/") ||
-                group.contains("movie") ||
-                group.contains("vod") ||
-                group.contains("film")
-    }
-
     private fun isAllowedStreamUrl(url: String): Boolean {
         val trimmed = url.trim()
         if (trimmed.length > 8192) return false
@@ -393,7 +380,18 @@ class M3uParser {
 
     companion object {
         /** Exposed for callers outside M3uParser (e.g. SyncManager) to avoid duplicate logic. */
-        fun isVodEntry(entry: M3uEntry): Boolean = M3uParser().isVodEntry(entry)
+        fun isVodEntry(entry: M3uEntry): Boolean {
+            val url = entry.url.lowercase()
+            val group = entry.groupTitle.lowercase()
+
+            return url.endsWith(".mp4") ||
+                    url.endsWith(".mkv") ||
+                    url.endsWith(".avi") ||
+                    url.contains("/movie/") ||
+                    group.contains("movie") ||
+                    group.contains("vod") ||
+                    group.contains("film")
+        }
 
         val knownAttributes = setOf(
             "tvg-id",

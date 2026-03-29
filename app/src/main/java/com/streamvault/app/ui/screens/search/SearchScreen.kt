@@ -44,6 +44,7 @@ import com.streamvault.app.ui.components.TvEmptyState
 import com.streamvault.app.ui.components.shell.AppNavigationChrome
 import com.streamvault.app.ui.components.shell.AppScreenScaffold
 import com.streamvault.app.ui.theme.*
+import com.streamvault.domain.manager.ParentalControlManager
 import com.streamvault.domain.model.Channel
 import com.streamvault.domain.model.Movie
 import com.streamvault.domain.model.Series
@@ -62,7 +63,8 @@ import javax.inject.Inject
 class SearchViewModel @Inject constructor(
     private val providerRepository: ProviderRepository,
     private val searchContent: SearchContent,
-    private val preferencesRepository: com.streamvault.data.preferences.PreferencesRepository
+    private val preferencesRepository: com.streamvault.data.preferences.PreferencesRepository,
+    private val parentalControlManager: ParentalControlManager
 ) : ViewModel() {
     private companion object {
         const val MAX_RESULTS_PER_SECTION = 120
@@ -78,6 +80,12 @@ class SearchViewModel @Inject constructor(
     val recentQueries: StateFlow<List<String>> = _recentQueries.asStateFlow()
 
     private val _parentalControlLevel = MutableStateFlow(0)
+    private val _activeProviderId = MutableStateFlow<Long?>(null)
+    private val unlockedCategoryIds = providerRepository.getActiveProvider()
+        .onEach { provider -> _activeProviderId.value = provider?.id }
+        .flatMapLatest { provider ->
+            provider?.let { parentalControlManager.unlockedCategoriesForProvider(it.id) } ?: flowOf(emptySet())
+        }
 
     init {
         viewModelScope.launch {
@@ -97,21 +105,24 @@ class SearchViewModel @Inject constructor(
         providerRepository.getActiveProvider(),
         _query.debounce(300),
         _selectedTab,
-        _parentalControlLevel
-    ) { provider, query, tab, level ->
-        SearchFilterParams(provider, query, tab, level)
+        _parentalControlLevel,
+        unlockedCategoryIds
+    ) { provider, query, tab, level, unlockedIds ->
+        SearchFilterParams(provider, query, tab, level, unlockedIds)
     }.flatMapLatest { params ->
         val provider = params.provider
         val query = params.query
         val tab = params.tab
         val level = params.level
+        val unlockedIds = params.unlockedCategoryIds
 
         if (provider == null || query.length < 2) {
             flowOf(
                 SearchUiState(
                     parentalControlLevel = level,
                     hasActiveProvider = provider != null,
-                    queryLength = query.length
+                    queryLength = query.length,
+                    unlockedCategoryIds = unlockedIds
                 )
             )
         } else {
@@ -129,7 +140,8 @@ class SearchViewModel @Inject constructor(
                     hasSearched = true,
                     parentalControlLevel = level,
                     hasActiveProvider = true,
-                    queryLength = query.length
+                    queryLength = query.length,
+                    unlockedCategoryIds = unlockedIds
                 )
             }
         }
@@ -180,13 +192,20 @@ class SearchViewModel @Inject constructor(
     suspend fun verifyPin(pin: String): Boolean {
         return preferencesRepository.verifyParentalPin(pin)
     }
+
+    fun unlockCategory(categoryId: Long?) {
+        val providerId = _activeProviderId.value ?: return
+        val resolvedCategoryId = categoryId ?: return
+        parentalControlManager.unlockCategory(providerId, resolvedCategoryId)
+    }
 }
 
 private data class SearchFilterParams(
     val provider: com.streamvault.domain.model.Provider?,
     val query: String,
     val tab: SearchTab,
-    val level: Int
+    val level: Int,
+    val unlockedCategoryIds: Set<Long>
 )
 
 enum class SearchTab(@get:StringRes val titleRes: Int) {
@@ -211,7 +230,8 @@ data class SearchUiState(
     val hasSearched: Boolean = false,
     val parentalControlLevel: Int = 0,
     val hasActiveProvider: Boolean = false,
-    val queryLength: Int = 0
+    val queryLength: Int = 0,
+    val unlockedCategoryIds: Set<Long> = emptySet()
 ) {
     val isEmpty: Boolean get() = hasSearched && channels.isEmpty() && movies.isEmpty() && series.isEmpty()
     val totalResults: Int get() = channels.size + movies.size + series.size
@@ -243,6 +263,16 @@ fun SearchScreen(
     val scope = rememberCoroutineScope()
     val selectedStateLabel = stringResource(R.string.a11y_selected)
 
+    fun isLocked(categoryId: Long?, isAdult: Boolean, isUserProtected: Boolean): Boolean {
+        if (uiState.parentalControlLevel != 1) {
+            return false
+        }
+        if (!isAdult && !isUserProtected) {
+            return false
+        }
+        return categoryId == null || categoryId !in uiState.unlockedCategoryIds
+    }
+
     LaunchedEffect(Unit) {
         runCatching { searchFocusRequester.requestFocus() }
     }
@@ -272,6 +302,9 @@ fun SearchScreen(
             onPinEntered = { pin ->
                 scope.launch {
                     if (viewModel.verifyPin(pin)) {
+                        pendingChannel?.categoryId?.let(viewModel::unlockCategory)
+                        pendingMovie?.categoryId?.let(viewModel::unlockCategory)
+                        pendingSeries?.categoryId?.let(viewModel::unlockCategory)
                         showPinDialog = false
                         pinError = null
                         pendingChannel?.let { onChannelClick(it) }
@@ -456,7 +489,11 @@ fun SearchScreen(
                                     }
                                 }
                                 items(uiState.channels, key = { it.id }) { channel ->
-                                    val isLocked = (channel.isAdult || channel.isUserProtected) && uiState.parentalControlLevel == 1
+                                    val isLocked = isLocked(
+                                        categoryId = channel.categoryId,
+                                        isAdult = channel.isAdult,
+                                        isUserProtected = channel.isUserProtected
+                                    )
                                     ChannelCard(
                                         channel = channel,
                                         isLocked = isLocked,
@@ -480,7 +517,11 @@ fun SearchScreen(
                                     }
                                 }
                                 items(uiState.movies, key = { it.id }) { movie ->
-                                    val isLocked = (movie.isAdult || movie.isUserProtected) && uiState.parentalControlLevel == 1
+                                    val isLocked = isLocked(
+                                        categoryId = movie.categoryId,
+                                        isAdult = movie.isAdult,
+                                        isUserProtected = movie.isUserProtected
+                                    )
                                     MovieCard(
                                         movie = movie,
                                         isLocked = isLocked,
@@ -504,7 +545,11 @@ fun SearchScreen(
                                     }
                                 }
                                 items(uiState.series, key = { it.id }) { series ->
-                                    val isLocked = (series.isAdult || series.isUserProtected) && uiState.parentalControlLevel == 1
+                                    val isLocked = isLocked(
+                                        categoryId = series.categoryId,
+                                        isAdult = series.isAdult,
+                                        isUserProtected = series.isUserProtected
+                                    )
                                     SeriesCard(
                                         series = series,
                                         isLocked = isLocked,

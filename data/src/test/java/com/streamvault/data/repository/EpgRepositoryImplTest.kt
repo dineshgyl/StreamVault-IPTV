@@ -3,6 +3,7 @@ package com.streamvault.data.repository
 import com.google.common.truth.Truth.assertThat
 import com.streamvault.data.local.DatabaseTransactionRunner
 import com.streamvault.data.local.dao.ProgramDao
+import com.streamvault.data.local.entity.ProgramBrowseEntity
 import com.streamvault.data.local.entity.ProgramEntity
 import com.streamvault.data.parser.XmltvParser
 import com.streamvault.domain.model.Program
@@ -44,7 +45,7 @@ class EpgRepositoryImplTest {
         whenever(programDao.searchPrograms(any(), any(), any(), any(), anyOrNull(), any())).thenReturn(
             flowOf(
                 listOf(
-                    ProgramEntity(
+                    ProgramBrowseEntity(
                         id = 1L,
                         providerId = 7L,
                         channelId = "one",
@@ -52,7 +53,7 @@ class EpgRepositoryImplTest {
                         startTime = 10L,
                         endTime = 20L
                     ),
-                    ProgramEntity(
+                    ProgramBrowseEntity(
                         id = 2L,
                         providerId = 7L,
                         channelId = "two",

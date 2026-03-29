@@ -67,6 +67,10 @@ class HomeViewModel @Inject constructor(
     @AuxiliaryPlayerEngine
     private val playerEngineProvider: InjectProvider<PlayerEngine>
 ) : ViewModel() {
+    private companion object {
+        const val MIN_CHANNEL_SEARCH_QUERY_LENGTH = 2
+    }
+
     private val appContext = application
 
     private val _uiState = MutableStateFlow(HomeUiState())
@@ -83,6 +87,7 @@ class HomeViewModel @Inject constructor(
     private var previewPlaybackJob: Job? = null
     private var previewErrorJob: Job? = null
     private var previewPlayerEngine: PlayerEngine? = null
+    private var previewSessionVersion: Long = 0L
 
     init {
         loadAllProviders()
@@ -91,6 +96,7 @@ class HomeViewModel @Inject constructor(
                 .filterNotNull()
                 .distinctUntilChangedBy { it.id }
                 .collectLatest { provider ->
+                    parentalControlManager.clearUnlockedCategories(provider.id)
                     _uiState.update {
                         it.copy(
                             provider = provider,
@@ -177,6 +183,17 @@ class HomeViewModel @Inject constructor(
             preferencesRepository.parentalControlLevel.collectLatest { level ->
                 _uiState.update { it.copy(parentalControlLevel = level) }
             }
+        }
+
+        viewModelScope.launch {
+            providerRepository.getActiveProvider()
+                .filterNotNull()
+                .flatMapLatest { provider ->
+                    parentalControlManager.unlockedCategoriesForProvider(provider.id)
+                }
+                .collectLatest { unlockedIds ->
+                    _uiState.update { it.copy(unlockedCategoryIds = unlockedIds) }
+                }
         }
 
         viewModelScope.launch {
@@ -348,7 +365,6 @@ class HomeViewModel @Inject constructor(
 
     fun selectCategory(category: Category) {
         if (_uiState.value.selectedCategory?.id == category.id) return
-        parentalControlManager.clearUnlockedCategories(_uiState.value.provider?.id)
         clearPreview()
         _uiState.update {
             it.copy(
@@ -418,18 +434,24 @@ class HomeViewModel @Inject constructor(
                     }
 
                     combine(orderedFlow, queryFlow) { channels, query ->
-                        if (query.isBlank()) {
+                        val trimmedQuery = query.trim()
+                        if (trimmedQuery.isBlank()) {
                             channels
+                        } else if (trimmedQuery.length < MIN_CHANNEL_SEARCH_QUERY_LENGTH) {
+                            emptyList()
                         } else {
-                            channels.filter { it.name.contains(query, ignoreCase = true) }
+                            channels.filter { it.name.contains(trimmedQuery, ignoreCase = true) }
                         }
                     }
                 } else {
                     queryFlow.flatMapLatest { query ->
-                        if (query.isBlank()) {
+                        val trimmedQuery = query.trim()
+                        if (trimmedQuery.isBlank()) {
                             channelRepository.getChannelsByCategory(providerId, category.id)
+                        } else if (trimmedQuery.length < MIN_CHANNEL_SEARCH_QUERY_LENGTH) {
+                            flowOf(emptyList())
                         } else {
-                            channelRepository.searchChannelsByCategory(providerId, category.id, query)
+                            channelRepository.searchChannelsByCategory(providerId, category.id, trimmedQuery)
                         }
                     }
                 }
@@ -496,6 +518,7 @@ class HomeViewModel @Inject constructor(
         if (_uiState.value.liveTvChannelMode != LiveTvChannelMode.PRO) return
         if (_uiState.value.previewChannelId == channel.id && _uiState.value.previewPlayerEngine != null) return
 
+        val previewVersion = ++previewSessionVersion
         val engine = previewPlayerEngine ?: playerEngineProvider.get().also { previewPlayerEngine = it }
         previewPlaybackJob?.cancel()
         previewErrorJob?.cancel()
@@ -511,6 +534,7 @@ class HomeViewModel @Inject constructor(
 
         previewPlaybackJob = viewModelScope.launch {
             engine.playbackState.collectLatest { playbackState ->
+                if (!isActivePreviewSession(previewVersion, channel.id)) return@collectLatest
                 _uiState.update { state ->
                     state.copy(
                         isPreviewLoading = playbackState == PlaybackState.IDLE || playbackState == PlaybackState.BUFFERING,
@@ -527,6 +551,7 @@ class HomeViewModel @Inject constructor(
 
         previewErrorJob = viewModelScope.launch {
             engine.error.collectLatest { error ->
+                if (!isActivePreviewSession(previewVersion, channel.id)) return@collectLatest
                 if (error != null) {
                     _uiState.update {
                         it.copy(
@@ -541,12 +566,14 @@ class HomeViewModel @Inject constructor(
         viewModelScope.launch {
             when (val result = channelRepository.getStreamInfo(channel)) {
                 is Result.Success -> {
+                    if (!isActivePreviewSession(previewVersion, channel.id)) return@launch
                     engine.stop()
                     engine.prepare(result.data)
                     engine.setVolume(0f)
                     engine.play()
                 }
                 is Result.Error -> {
+                    if (!isActivePreviewSession(previewVersion, channel.id)) return@launch
                     _uiState.update {
                         it.copy(
                             isPreviewLoading = false,
@@ -560,6 +587,7 @@ class HomeViewModel @Inject constructor(
     }
 
     fun clearPreview() {
+        previewSessionVersion++
         previewPlaybackJob?.cancel()
         previewErrorJob?.cancel()
         previewPlaybackJob = null
@@ -576,6 +604,9 @@ class HomeViewModel @Inject constructor(
             )
         }
     }
+
+    private fun isActivePreviewSession(version: Long, channelId: Long): Boolean =
+        version == previewSessionVersion && _uiState.value.previewChannelId == channelId
 
     private fun fetchEpgForChannels(providerId: Long, channels: List<Channel>) {
         epgJob?.cancel()
@@ -1140,6 +1171,7 @@ data class HomeUiState(
     val showDeleteGroupDialog: Boolean = false,
     val groupToDelete: Category? = null,
     val parentalControlLevel: Int = 0,
+    val unlockedCategoryIds: Set<Long> = emptySet(),
     val selectedCategoryForOptions: Category? = null,
     val isChannelReorderMode: Boolean = false,
     val reorderCategory: Category? = null,

@@ -251,7 +251,7 @@ private fun TopNavigationBar(
     Surface(
         modifier = modifier.focusProperties {
             onEnter = {
-                val activeItem = items.firstOrNull { it.route == currentRoute }
+                val activeItem = findActiveDestinationItem(items, currentRoute)
                 focusRequesters[activeItem?.route] ?: FocusRequester.Default
             }
         },
@@ -645,7 +645,7 @@ private fun DestinationRail(
             )
             .focusProperties {
                 onEnter = {
-                    val activeItem = items.firstOrNull { it.route == currentRoute }
+                    val activeItem = findActiveDestinationItem(items, currentRoute)
                     focusRequesters[activeItem?.route] ?: FocusRequester.Default
                 }
             }
@@ -750,6 +750,15 @@ private data class DestinationItem(
     @StringRes val labelRes: Int,
     val icon: ImageVector
 )
+
+private fun findActiveDestinationItem(
+    items: List<DestinationItem>,
+    currentRoute: String
+): DestinationItem? =
+    items
+        .filter { currentRoute.startsWith(it.route) }
+        .maxByOrNull { it.route.length }
+        ?: items.firstOrNull { it.route == currentRoute }
 
 private fun buildDestinationItems(): List<DestinationItem> = listOf(
     DestinationItem(Routes.HOME, R.string.nav_home, Icons.Default.Home),

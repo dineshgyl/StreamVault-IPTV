@@ -19,10 +19,13 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
@@ -32,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.runtime.remember
 import androidx.tv.material3.Border
 import androidx.tv.material3.Button
 import androidx.tv.material3.ButtonDefaults
@@ -44,6 +48,8 @@ import com.streamvault.app.ui.components.rememberCrossfadeImageModel
 import com.streamvault.app.ui.components.shell.ContentMetadataStrip
 import com.streamvault.app.ui.components.shell.StatusPill
 import com.streamvault.app.ui.design.AppColors
+import com.streamvault.app.ui.design.requestFocusSafely
+import com.streamvault.app.ui.model.formatVodRatingLabel
 import com.streamvault.domain.model.Movie
 
 @Composable
@@ -101,6 +107,15 @@ private fun MovieDetailContent(
 ) {
     val context = LocalContext.current
     val isTelevisionDevice = rememberIsTelevisionDevice()
+    val playButtonFocusRequester = remember { FocusRequester() }
+
+    LaunchedEffect(movie.id) {
+        playButtonFocusRequester.requestFocusSafely(
+            tag = "MovieDetailScreen",
+            target = "Play button"
+        )
+    }
+
     BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
@@ -168,6 +183,7 @@ private fun MovieDetailContent(
                             movie = movie,
                             hasResume = hasResume,
                             onPlay = onPlay,
+                            playButtonFocusRequester = playButtonFocusRequester,
                             onPlayTrailer = {
                                 resolveTrailerUrl(movie.youtubeTrailer)?.let { trailerUrl ->
                                     context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(trailerUrl)))
@@ -185,6 +201,7 @@ private fun MovieDetailContent(
                             movie = movie,
                             hasResume = hasResume,
                             onPlay = onPlay,
+                            playButtonFocusRequester = playButtonFocusRequester,
                             onPlayTrailer = {
                                 resolveTrailerUrl(movie.youtubeTrailer)?.let { trailerUrl ->
                                     context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(trailerUrl)))
@@ -225,6 +242,7 @@ private fun MovieDetailHeroText(
     movie: Movie,
     hasResume: Boolean,
     onPlay: () -> Unit,
+    playButtonFocusRequester: FocusRequester,
     onPlayTrailer: () -> Unit,
     modifier: Modifier = Modifier
 ) {
@@ -237,7 +255,7 @@ private fun MovieDetailHeroText(
             StatusPill(label = stringResource(R.string.nav_movies), containerColor = AppColors.BrandMuted)
             movie.rating.takeIf { it > 0f }?.let {
                 StatusPill(
-                    label = stringResource(R.string.label_rating, String.format("%.1f", it)),
+                    label = formatVodRatingLabel(it),
                     containerColor = AppColors.Warning,
                     contentColor = Color.Black
                 )
@@ -268,6 +286,7 @@ private fun MovieDetailHeroText(
         Row(horizontalArrangement = Arrangement.spacedBy(12.dp), verticalAlignment = Alignment.CenterVertically) {
             Button(
                 onClick = onPlay,
+                modifier = Modifier.focusRequester(playButtonFocusRequester),
                 colors = ButtonDefaults.colors(
                     containerColor = AppColors.Brand,
                     contentColor = Color.White

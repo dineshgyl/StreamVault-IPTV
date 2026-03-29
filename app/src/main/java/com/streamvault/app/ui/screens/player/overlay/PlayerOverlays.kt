@@ -9,6 +9,7 @@ import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -48,10 +49,13 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.foundation.layout.offset
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.rememberScrollState
@@ -372,6 +376,103 @@ fun ChannelInfoOverlay(
                 }
                 item {
                     QuickActionButton(
+                        icon = stringResource(R.string.player_action_mute),
+                        label = if (isMuted) stringResource(R.string.player_unmute) else stringResource(R.string.player_mute),
+                        onClick = {
+                            onOverlayInteracted()
+                            onToggleMute()
+                        },
+                        onInteraction = onOverlayInteracted
+                    )
+                }
+                if (subtitleTrackCount > 0) {
+                    item {
+                        QuickActionButton(
+                            icon = stringResource(R.string.player_subs),
+                            label = stringResource(R.string.player_subs),
+                            onClick = {
+                                onOverlayInteracted()
+                                onOpenSubtitleTracks()
+                            },
+                            onInteraction = onOverlayInteracted
+                        )
+                    }
+                }
+                if (videoQualityCount > 0) {
+                    item {
+                        QuickActionButton(
+                            icon = stringResource(R.string.player_action_quality),
+                            label = stringResource(R.string.player_quality_short),
+                            onClick = {
+                                onOverlayInteracted()
+                                onOpenVideoTracks()
+                            },
+                            onInteraction = onOverlayInteracted
+                        )
+                    }
+                }
+                if (audioTrackCount > 0) {
+                    item {
+                        QuickActionButton(
+                            icon = stringResource(R.string.player_audio),
+                            label = stringResource(R.string.player_audio),
+                            onClick = {
+                                onOverlayInteracted()
+                                onOpenAudioTracks()
+                            },
+                            onInteraction = onOverlayInteracted
+                        )
+                    }
+                }
+                item {
+                    QuickActionButton(
+                        icon = stringResource(R.string.player_action_guide),
+                        label = stringResource(R.string.player_epg_short),
+                        onClick = {
+                            onOverlayInteracted()
+                            onOpenFullEpg()
+                        },
+                        onInteraction = onOverlayInteracted
+                    )
+                }
+                item {
+                    QuickActionButton(
+                        icon = stringResource(R.string.player_action_split),
+                        label = stringResource(R.string.player_multiview_short),
+                        onClick = {
+                            onOverlayInteracted()
+                            onDismiss()
+                            onOpenSplitScreen()
+                        },
+                        onInteraction = onOverlayInteracted
+                    )
+                }
+                item {
+                    QuickActionButton(
+                        icon = stringResource(R.string.player_action_diagnostics),
+                        label = stringResource(R.string.player_stats),
+                        onClick = {
+                            onOverlayInteracted()
+                            onToggleDiagnostics()
+                        },
+                        onInteraction = onOverlayInteracted
+                    )
+                }
+                if (!lastVisitedCategoryName.isNullOrBlank()) {
+                    item {
+                        QuickActionButton(
+                            icon = stringResource(R.string.player_action_group),
+                            label = lastVisitedCategoryName,
+                            onClick = {
+                                onOverlayInteracted()
+                                onOpenLastGroup()
+                            },
+                            onInteraction = onOverlayInteracted
+                        )
+                    }
+                }
+                item {
+                    QuickActionButton(
                         icon = if (currentRecordingStatus == RecordingStatus.RECORDING) {
                             stringResource(R.string.player_stop_recording)
                         } else {
@@ -423,75 +524,6 @@ fun ChannelInfoOverlay(
                 }
                 item {
                     QuickActionButton(
-                        icon = stringResource(R.string.player_action_view),
-                        label = currentAspectRatio,
-                        onClick = {
-                            onOverlayInteracted()
-                            onToggleAspectRatio()
-                        },
-                        onInteraction = onOverlayInteracted
-                    )
-                }
-                if (!lastVisitedCategoryName.isNullOrBlank()) {
-                    item {
-                        QuickActionButton(
-                            icon = stringResource(R.string.player_action_group),
-                            label = lastVisitedCategoryName,
-                            onClick = {
-                                onOverlayInteracted()
-                                onOpenLastGroup()
-                            },
-                            onInteraction = onOverlayInteracted
-                        )
-                    }
-                }
-                item {
-                    QuickActionButton(
-                        icon = stringResource(R.string.player_action_guide),
-                        label = stringResource(R.string.player_epg_short),
-                        onClick = {
-                            onOverlayInteracted()
-                            onOpenFullEpg()
-                        },
-                        onInteraction = onOverlayInteracted
-                    )
-                }
-                item {
-                    QuickActionButton(
-                        icon = stringResource(R.string.player_action_split),
-                        label = stringResource(R.string.player_multiview_short),
-                        onClick = {
-                            onOverlayInteracted()
-                            onDismiss()
-                            onOpenSplitScreen()
-                        },
-                        onInteraction = onOverlayInteracted
-                    )
-                }
-                item {
-                    QuickActionButton(
-                        icon = stringResource(R.string.player_action_diagnostics),
-                        label = stringResource(R.string.player_stats),
-                        onClick = {
-                            onOverlayInteracted()
-                            onToggleDiagnostics()
-                        },
-                        onInteraction = onOverlayInteracted
-                    )
-                }
-                item {
-                    QuickActionButton(
-                        icon = stringResource(R.string.player_action_mute),
-                        label = if (isMuted) stringResource(R.string.player_unmute) else stringResource(R.string.player_mute),
-                        onClick = {
-                            onOverlayInteracted()
-                            onToggleMute()
-                        },
-                        onInteraction = onOverlayInteracted
-                    )
-                }
-                item {
-                    QuickActionButton(
                         icon = stringResource(R.string.player_action_cast),
                         label = if (isCastConnected) stringResource(R.string.player_stop_casting) else stringResource(R.string.player_cast),
                         onClick = {
@@ -512,44 +544,27 @@ fun ChannelInfoOverlay(
                         onInteraction = onOverlayInteracted
                     )
                 }
-                if (subtitleTrackCount > 0) {
-                    item {
-                        QuickActionButton(
-                            icon = stringResource(R.string.player_subs),
-                            label = stringResource(R.string.player_subs),
-                            onClick = {
-                                onOverlayInteracted()
-                                onOpenSubtitleTracks()
-                            },
-                            onInteraction = onOverlayInteracted
-                        )
-                    }
+                item {
+                    QuickActionButton(
+                        icon = stringResource(R.string.player_action_pip),
+                        label = stringResource(R.string.player_pip_short),
+                        onClick = {
+                            onOverlayInteracted()
+                            onEnterPictureInPicture()
+                        },
+                        onInteraction = onOverlayInteracted
+                    )
                 }
-                if (audioTrackCount > 0) {
-                    item {
-                        QuickActionButton(
-                            icon = stringResource(R.string.player_audio),
-                            label = stringResource(R.string.player_audio),
-                            onClick = {
-                                onOverlayInteracted()
-                                onOpenAudioTracks()
-                            },
-                            onInteraction = onOverlayInteracted
-                        )
-                    }
-                }
-                if (videoQualityCount > 0) {
-                    item {
-                        QuickActionButton(
-                            icon = stringResource(R.string.player_action_quality),
-                            label = stringResource(R.string.player_quality_short),
-                            onClick = {
-                                onOverlayInteracted()
-                                onOpenVideoTracks()
-                            },
-                            onInteraction = onOverlayInteracted
-                        )
-                    }
+                item {
+                    QuickActionButton(
+                        icon = stringResource(R.string.player_action_view),
+                        label = currentAspectRatio,
+                        onClick = {
+                            onOverlayInteracted()
+                            onToggleAspectRatio()
+                        },
+                        onInteraction = onOverlayInteracted
+                    )
                 }
             }
         }
@@ -648,6 +663,7 @@ fun ChannelListOverlay(
     val canScrollUp by remember { derivedStateOf { listState.canScrollBackward } }
     val canScrollDown by remember { derivedStateOf { listState.canScrollForward } }
     val scope = rememberCoroutineScope()
+    val isRtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     // Count header items before the channels list so we can map channel index → lazy index
     val headerItemCount = remember(lastVisitedCategoryName, recentChannels) {
         var count = 2 // title row + channel list hint (always present)
@@ -881,30 +897,48 @@ fun ChannelListOverlay(
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                                    .padding(horizontal = 14.dp, vertical = 12.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
-                                if (isSelected) {
-                                    StatusPill(
-                                        label = stringResource(R.string.player_channel_selected),
-                                        containerColor = AppColors.BrandMuted
-                                    )
-                                } else {
-                                    Spacer(Modifier.width(42.dp))
+                                Box(
+                                    modifier = Modifier.width(48.dp),
+                                    contentAlignment = Alignment.CenterStart
+                                ) {
+                                    if (isSelected) {
+                                        StatusPill(
+                                            label = stringResource(R.string.player_channel_selected),
+                                            containerColor = AppColors.BrandMuted
+                                        )
+                                    }
                                 }
                                 Text(
                                     text = channelNumber.toString().padStart(2, '0'),
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = Color.White.copy(alpha = 0.72f)
+                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 16.sp),
+                                    color = Color.White.copy(alpha = 0.72f),
+                                    textAlign = TextAlign.Start,
+                                    modifier = Modifier.width(28.dp)
                                 )
                                 Text(
                                     text = channel.name,
-                                    style = MaterialTheme.typography.bodyLarge,
+                                    style = MaterialTheme.typography.bodyMedium.copy(fontSize = 22.sp),
                                     color = Color.White,
                                     maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
-                                    modifier = Modifier.weight(1f)
+                                    overflow = if (isFocused) TextOverflow.Clip else TextOverflow.Ellipsis,
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .then(
+                                            if (isFocused) {
+                                                Modifier.basicMarquee(
+                                                    iterations = Int.MAX_VALUE,
+                                                    initialDelayMillis = 600,
+                                                    repeatDelayMillis = 900,
+                                                    velocity = 26.dp
+                                                )
+                                            } else {
+                                                Modifier
+                                            }
+                                        )
                                 )
                                 if (channel.catchUpSupported) {
                                     StatusPill(
@@ -982,10 +1016,13 @@ fun ChannelListOverlay(
                     onOpenCategories()
                 },
                 modifier = Modifier
-                    .align(Alignment.CenterStart)
-                    .offset(x = (-28).dp)
+                    .align(if (isRtl) Alignment.CenterEnd else Alignment.CenterStart)
+                    .offset(x = if (isRtl) 28.dp else (-28).dp)
                     .onFocusChanged { if (it.isFocused) onOverlayInteracted() },
-                shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(topStart = 10.dp, bottomStart = 10.dp)),
+                shape = ClickableSurfaceDefaults.shape(
+                    if (isRtl) RoundedCornerShape(topEnd = 10.dp, bottomEnd = 10.dp)
+                    else RoundedCornerShape(topStart = 10.dp, bottomStart = 10.dp)
+                ),
                 colors = ClickableSurfaceDefaults.colors(
                     containerColor = AppColors.SurfaceEmphasis.copy(alpha = 0.92f),
                     focusedContainerColor = Primary
@@ -999,7 +1036,7 @@ fun ChannelListOverlay(
                     verticalArrangement = Arrangement.Center
                 ) {
                     Text(
-                        text = "\u25c4",
+                        text = if (isRtl) "\u25ba" else "\u25c4",
                         style = MaterialTheme.typography.labelSmall,
                         color = Color.White.copy(alpha = 0.85f)
                     )

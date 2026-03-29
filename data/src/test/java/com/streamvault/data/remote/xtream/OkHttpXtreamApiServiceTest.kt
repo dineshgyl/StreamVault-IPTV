@@ -1,6 +1,7 @@
 package com.streamvault.data.remote.xtream
 
 import com.google.common.truth.Truth.assertThat
+import com.streamvault.data.remote.dto.XtreamSeriesInfoResponse
 import java.net.SocketTimeoutException
 import kotlinx.coroutines.test.runTest
 import kotlinx.serialization.json.Json
@@ -14,7 +15,12 @@ import org.junit.Test
 
 class OkHttpXtreamApiServiceTest {
 
-    private val json = Json { ignoreUnknownKeys = true }
+    private val json = Json {
+        ignoreUnknownKeys = true
+        isLenient = true
+        explicitNulls = false
+        coerceInputValues = true
+    }
 
     @Test
     fun `get classifies 401 as authentication error`() = runTest {
@@ -43,7 +49,7 @@ class OkHttpXtreamApiServiceTest {
         }.exceptionOrNull()
 
         assertThat(failure).isInstanceOf(XtreamParsingException::class.java)
-        assertThat(failure).hasMessageThat().contains("malformed")
+        assertThat(failure).hasMessageThat().contains("Malformed JSON")
     }
 
     @Test
@@ -61,6 +67,64 @@ class OkHttpXtreamApiServiceTest {
 
         assertThat(failure).isInstanceOf(XtreamNetworkException::class.java)
         assertThat(failure).hasMessageThat().contains("timed out")
+    }
+
+    @Test
+    fun `streamVodStreams decodes array incrementally`() = runTest {
+        val service = OkHttpXtreamApiService(
+            client = clientReturning(
+                statusCode = 200,
+                body = """
+                    [
+                      {"stream_id": "101", "name": "Movie One", "container_extension": "mp4"},
+                      {"stream_id": "102", "name": "Movie Two", "container_extension": "mkv"}
+                    ]
+                """.trimIndent()
+            ),
+            json = json
+        )
+        val seenIds = mutableListOf<Long>()
+
+        val count = service.streamVodStreams("https://example.test/player_api.php?action=get_vod_streams") { item ->
+            seenIds += item.streamId
+        }
+
+        assertThat(count).isEqualTo(2)
+        assertThat(seenIds).containsExactly(101L, 102L).inOrder()
+    }
+
+    @Test
+    fun `series info parser tolerates flattened info and nested episode objects`() {
+        val payload = """
+            {
+              "name": "Example Series",
+              "cover_big": "https://img.example.test/cover.jpg",
+              "releasedate": "2024-04-01",
+              "episodes": {
+                "1": {
+                  "101": {
+                    "id": "101",
+                    "episode_num": "1",
+                    "title": "Pilot",
+                    "season": "1",
+                    "container_extension": "mp4",
+                    "info": {
+                      "plot": "First episode"
+                    }
+                  }
+                }
+              }
+            }
+        """.trimIndent()
+
+        val response = json.decodeFromString<XtreamSeriesInfoResponse>(payload)
+
+        assertThat(response.info).isNotNull()
+        assertThat(response.info?.name).isEqualTo("Example Series")
+        assertThat(response.info?.releaseDateAlt).isEqualTo("2024-04-01")
+        assertThat(response.episodes.keys).containsExactly("1")
+        assertThat(response.episodes["1"]).hasSize(1)
+        assertThat(response.episodes["1"]?.first()?.title).isEqualTo("Pilot")
     }
 
     private fun clientReturning(statusCode: Int, body: String): OkHttpClient {

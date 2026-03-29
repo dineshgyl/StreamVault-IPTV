@@ -2,6 +2,7 @@ package com.streamvault.data.repository
 
 import com.streamvault.data.local.dao.CategoryDao
 import com.streamvault.data.local.dao.ChannelDao
+import com.streamvault.data.local.entity.ChannelBrowseEntity
 import com.streamvault.data.local.entity.CategoryEntity
 import com.streamvault.data.local.entity.ChannelEntity
 import com.streamvault.data.mapper.toDomain
@@ -32,17 +33,18 @@ class ChannelRepositoryImpl @Inject constructor(
     private val xtreamStreamUrlResolver: XtreamStreamUrlResolver
 ) : ChannelRepository {
     private companion object {
-        const val GLOBAL_SEARCH_LIMIT = 320
-        const val CATEGORY_SEARCH_LIMIT = 750
+        const val GLOBAL_SEARCH_LIMIT = 200
+        const val CATEGORY_SEARCH_LIMIT = 300
+        const val MIN_SEARCH_QUERY_LENGTH = 2
         val QUALITY_HEIGHT_REGEX = Regex("(?<!\\d)(2160|1440|1080|720|576|480|360|240)p?(?!\\d)", RegexOption.IGNORE_CASE)
     }
 
     private data class ChannelGroupAccumulator(
-        var primary: ChannelEntity,
-        val alternatives: MutableList<ChannelEntity> = mutableListOf()
+        var primary: ChannelBrowseEntity,
+        val alternatives: MutableList<ChannelBrowseEntity> = mutableListOf()
     )
 
-    private val channelPriorityComparator = compareBy<ChannelEntity>({ it.errorCount }, { it.name.length })
+    private val channelPriorityComparator = compareBy<ChannelBrowseEntity>({ it.errorCount }, { it.name.length })
     private val channelNumberComparator = compareBy<Channel>(
         { it.number <= 0 },
         { it.number.takeIf { number -> number > 0 } ?: Int.MAX_VALUE },
@@ -64,8 +66,8 @@ class ChannelRepositoryImpl @Inject constructor(
             .map(::sortChannelsByNumber)
 
     override fun searchChannelsByCategory(providerId: Long, categoryId: Long, query: String): Flow<List<Channel>> =
-        query.toFtsPrefixQuery().let { ftsQuery ->
-            if (ftsQuery.isBlank()) {
+        query.trim().takeIf { it.length >= MIN_SEARCH_QUERY_LENGTH }?.toFtsPrefixQuery().let { ftsQuery ->
+            if (ftsQuery.isNullOrBlank()) {
                 flowOf(emptyList())
             } else {
                 combine(
@@ -127,8 +129,8 @@ class ChannelRepositoryImpl @Inject constructor(
         }
 
     override fun searchChannels(providerId: Long, query: String): Flow<List<Channel>> =
-        query.toFtsPrefixQuery().let { ftsQuery ->
-            if (ftsQuery.isBlank()) {
+        query.trim().takeIf { it.length >= MIN_SEARCH_QUERY_LENGTH }?.toFtsPrefixQuery().let { ftsQuery ->
+            if (ftsQuery.isNullOrBlank()) {
                 flowOf(emptyList())
             } else combine(
                 channelDao.search(providerId, ftsQuery, GLOBAL_SEARCH_LIMIT),
@@ -178,7 +180,7 @@ class ChannelRepositoryImpl @Inject constructor(
     }
 
     override fun getChannelsByIds(ids: List<Long>): Flow<List<Channel>> =
-        channelDao.getByIds(ids).map { entities -> entities.map { it.toDomain() } }
+        channelDao.getByIds(ids).map { entities -> entities.map { it.toBrowseDomain() } }
 
     override suspend fun incrementChannelErrorCount(channelId: Long): Result<Unit> = try {
         channelDao.incrementErrorCount(channelId)
@@ -195,7 +197,7 @@ class ChannelRepositoryImpl @Inject constructor(
     }
 
     private fun observeChannels(
-        source: Flow<List<ChannelEntity>>,
+        source: Flow<List<ChannelBrowseEntity>>,
         providerId: Long
     ): Flow<List<Channel>> = combine(
         source,
@@ -209,7 +211,7 @@ class ChannelRepositoryImpl @Inject constructor(
         )
     }
 
-    private fun groupAndMapChannels(entities: List<ChannelEntity>, unlockedCats: Set<Long>): List<Channel> {
+    private fun groupAndMapChannels(entities: List<ChannelBrowseEntity>, unlockedCats: Set<Long>): List<Channel> {
         val grouped = LinkedHashMap<String, ChannelGroupAccumulator>()
         entities.forEach { entity ->
             val key = channelGroupKey(entity)
@@ -226,18 +228,16 @@ class ChannelRepositoryImpl @Inject constructor(
 
         return grouped.values.map { group ->
             val primaryEntity = group.primary
-            val primaryDomain = primaryEntity.toDomain()
-            val alternativeStreams = (group.alternatives
+            val alternativeStreams = group.alternatives
                 .sortedWith(channelPriorityComparator)
                 .map { it.streamUrl }
-                + primaryDomain.qualityOptions.mapNotNull { it.url }.filter { it != primaryEntity.streamUrl })
                 .distinct()
             val mergedQualityOptions = buildMergedQualityOptions(
-                baseOptions = primaryDomain.qualityOptions,
+                baseOptions = emptyList(),
                 primaryStreamUrl = primaryEntity.streamUrl,
                 alternativeStreams = alternativeStreams
             )
-            val domain = primaryDomain.copy(
+            val domain = primaryEntity.toBrowseDomain().copy(
                 qualityOptions = mergedQualityOptions,
                 alternativeStreams = alternativeStreams
             )
@@ -251,10 +251,10 @@ class ChannelRepositoryImpl @Inject constructor(
     }
 
     private fun applyVisibilityFilter(
-        entities: List<ChannelEntity>,
+        entities: List<ChannelBrowseEntity>,
         level: Int,
         unlockedCats: Set<Long>
-    ): List<ChannelEntity> {
+    ): List<ChannelBrowseEntity> {
         return if (level == 2) {
             entities.filter { entity ->
                 val isUnlocked = entity.categoryId != null && unlockedCats.contains(entity.categoryId)
@@ -279,14 +279,14 @@ class ChannelRepositoryImpl @Inject constructor(
             ChannelNumberingMode.PROVIDER -> channels
         }
 
-    private fun channelFlow(providerId: Long, categoryId: Long): Flow<List<ChannelEntity>> =
+    private fun channelFlow(providerId: Long, categoryId: Long): Flow<List<ChannelBrowseEntity>> =
         if (categoryId == ChannelRepository.ALL_CHANNELS_ID) {
             channelDao.getByProvider(providerId)
         } else {
             channelDao.getByCategory(providerId, categoryId)
         }
 
-    private fun channelFlowWithoutErrors(providerId: Long, categoryId: Long): Flow<List<ChannelEntity>> =
+    private fun channelFlowWithoutErrors(providerId: Long, categoryId: Long): Flow<List<ChannelBrowseEntity>> =
         if (categoryId == ChannelRepository.ALL_CHANNELS_ID) {
             channelDao.getByProviderWithoutErrors(providerId)
         } else {
@@ -315,6 +315,28 @@ class ChannelRepositoryImpl @Inject constructor(
         )
     }
 
-    private fun channelGroupKey(entity: ChannelEntity): String =
+    private fun channelGroupKey(entity: ChannelBrowseEntity): String =
         if (entity.logicalGroupId.isNotBlank()) entity.logicalGroupId else entity.id.toString()
+
+    private fun ChannelBrowseEntity.toBrowseDomain(): Channel =
+        Channel(
+            id = id,
+            name = name,
+            logoUrl = logoUrl,
+            groupTitle = groupTitle,
+            categoryId = categoryId,
+            categoryName = categoryName,
+            streamUrl = streamUrl,
+            epgChannelId = epgChannelId,
+            number = number,
+            catchUpSupported = catchUpSupported,
+            catchUpDays = catchUpDays,
+            catchUpSource = catchUpSource,
+            providerId = providerId,
+            isAdult = isAdult,
+            isUserProtected = isUserProtected,
+            logicalGroupId = logicalGroupId,
+            errorCount = errorCount,
+            streamId = streamId
+        )
 }
