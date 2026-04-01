@@ -141,7 +141,7 @@ fun HomeScreen(
     } else if (!isTelevisionDevice && screenWidth < 1280.dp) {
         (screenWidth * 0.28f).coerceIn(220.dp, 280.dp)
     } else if (isProMode) {
-        270.dp
+        320.dp
     } else if (isDenseMode) {
         300.dp
     } else {
@@ -372,6 +372,7 @@ fun HomeScreen(
                 val isChannelLocked: (Channel) -> Boolean = remember(
                     uiState.parentalControlLevel,
                     uiState.unlockedCategoryIds,
+                    uiState.categories,
                     uiState.selectedCategory?.id,
                     uiState.selectedCategory?.isAdult,
                     uiState.selectedCategory?.isUserProtected
@@ -379,12 +380,20 @@ fun HomeScreen(
                     { channel ->
                         val selectedCategory = uiState.selectedCategory
                         val channelCategoryId = channel.categoryId
+                        val sourceCategory = uiState.categories.firstOrNull { it.id == channelCategoryId }
                         val unlockedByChannelCategory =
                             channelCategoryId != null && kotlin.math.abs(channelCategoryId) in uiState.unlockedCategoryIds
                         val unlockedBySelectedCategory =
                             selectedCategory != null && kotlin.math.abs(selectedCategory.id) in uiState.unlockedCategoryIds
                         val unlocked = unlockedByChannelCategory || unlockedBySelectedCategory
-                        (channel.isAdult || channel.isUserProtected || (selectedCategory?.isAdult == true) || (selectedCategory?.isUserProtected == true)) &&
+                        (
+                            channel.isAdult ||
+                                channel.isUserProtected ||
+                                (selectedCategory?.isAdult == true) ||
+                                (selectedCategory?.isUserProtected == true) ||
+                                (sourceCategory?.isAdult == true) ||
+                                (sourceCategory?.isUserProtected == true)
+                            ) &&
                             uiState.parentalControlLevel == 1 &&
                             !unlocked
                     }
@@ -696,7 +705,7 @@ fun HomeScreen(
                 ) {
                     Column(
                         modifier = Modifier
-                            .weight(if (isProMode) 0.92f else 1f)
+                            .weight(if (isProMode) 1.08f else 1f)
                             .fillMaxHeight()
                     ) {
                         Column(
@@ -755,7 +764,7 @@ fun HomeScreen(
                                         }
                                     },
                                     placeholder = stringResource(R.string.home_search_channels),
-                                    onSearch = { focusManager.clearFocus() },
+                                    onSearch = {},
                                     focusRequester = channelSearchFocusRequester,
                                     modifier = Modifier.width(channelSearchWidth),
                                     enabled = !isReorderMode
@@ -1002,7 +1011,7 @@ fun HomeScreen(
                             isLoading = uiState.isPreviewLoading,
                             errorMessage = uiState.previewErrorMessage,
                             modifier = Modifier
-                                .weight(1.08f)
+                                .weight(0.92f)
                                 .fillMaxHeight()
                         )
                     }
@@ -1305,15 +1314,16 @@ private fun CategoryItem(
                     }
                 } else false
             },
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(10.dp)),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = if (isSelected) Primary.copy(alpha = 0.15f) else Color.Transparent,
-            focusedContainerColor = SurfaceHighlight,
+            focusedContainerColor = SurfaceHighlight.copy(alpha = 0.82f),
             contentColor = if (isSelected) Primary else OnSurface
         ),
         border = ClickableSurfaceDefaults.border(
             focusedBorder = Border(
-                border = BorderStroke(2.dp, Color.White),
+                border = BorderStroke(2.dp, Primary.copy(alpha = 0.85f)),
                 shape = RoundedCornerShape(10.dp)
             )
         )

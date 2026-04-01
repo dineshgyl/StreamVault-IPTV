@@ -59,6 +59,7 @@ class ProviderSetupViewModel @Inject constructor(
                         username = provider.username,
                         password = "",
                         m3uUrl = provider.m3uUrl,
+                        xtreamFastSyncEnabled = provider.xtreamFastSyncEnabled,
                         selectedTab = if (provider.type == ProviderType.M3U) 1 else 0,
                         m3uTab = if (provider.m3uUrl.startsWith("file://")) 1 else 0
                     )
@@ -69,6 +70,10 @@ class ProviderSetupViewModel @Inject constructor(
 
     fun updateM3uTab(tab: Int) {
         _uiState.update { it.copy(m3uTab = tab) }
+    }
+
+    fun updateXtreamFastSyncEnabled(enabled: Boolean) {
+        _uiState.update { it.copy(xtreamFastSyncEnabled = enabled) }
     }
 
     fun loginXtream(serverUrl: String, username: String, password: String, name: String) {
@@ -84,6 +89,7 @@ class ProviderSetupViewModel @Inject constructor(
                     username = username,
                     password = password,
                     name = name,
+                    xtreamFastSyncEnabled = _uiState.value.xtreamFastSyncEnabled,
                     existingProviderId = existingId
                 ),
                 onProgress = { msg -> _uiState.update { it.copy(syncProgress = msg) } }
@@ -201,5 +207,6 @@ data class ProviderSetupState(
     val serverUrl: String = "",
     val username: String = "",
     val password: String = "",
-    val m3uUrl: String = ""
+    val m3uUrl: String = "",
+    val xtreamFastSyncEnabled: Boolean = true
 )

@@ -3,6 +3,7 @@ package com.streamvault.app.ui.screens.series
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -423,13 +424,13 @@ private fun SeriesVodContent(
     }
 
     if (uiState.selectedCategory == null) {
-        androidx.compose.foundation.lazy.LazyColumn(
+        LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(bottom = 28.dp)
         ) {
+            item(key = "hero") {
             if (heroSeries != null) {
-                item("hero") {
-                    VodHeroStrip(
+                VodHeroStrip(
                         title = heroSeries.name,
                         subtitle = heroSeries.plot?.takeIf { it.isNotBlank() }
                             ?: heroSeries.genre
@@ -441,11 +442,10 @@ private fun SeriesVodContent(
                         },
                         modifier = Modifier.padding(top = 8.dp, bottom = 6.dp)
                     )
-                }
             }
-
-            item("actions") {
-                VodActionChipRow(
+            }
+            item(key = "actions") {
+            VodActionChipRow(
                     actions = buildList {
                         add(
                             VodActionChip(
@@ -507,19 +507,17 @@ private fun SeriesVodContent(
                     modifier = Modifier.padding(top = 2.dp, bottom = 6.dp)
                 )
             }
-
             if (continueWatching.isNotEmpty()) {
-                item("continue") {
-                    ContinueWatchingRow(
+            item(key = "continue_watching") {
+                ContinueWatchingRow(
                         items = continueWatching,
                         onItemClick = { history -> onSeriesClick(history.seriesId ?: history.contentId) }
                     )
-                }
             }
-
+            }
             if (favoriteSeries.isNotEmpty()) {
-                item("favorites_row") {
-                    CategoryRow(
+            item(key = "favorites_row") {
+                CategoryRow(
                         title = stringResource(R.string.favorites_title),
                         items = favoriteSeries,
                         onSeeAll = { onSelectCategory(uiState.favoriteCategoryName) },
@@ -533,13 +531,12 @@ private fun SeriesVodContent(
                             onLongClick = { onShowDialog(series) },
                             modifier = Modifier.width(favoriteCardWidth)
                         )
-                    }
                 }
             }
-
+            }
             if (freshSeries.isNotEmpty()) {
-                item("fresh_row") {
-                    CategoryRow(
+            item(key = "fresh_row") {
+                CategoryRow(
                         title = stringResource(R.string.library_lens_fresh_series),
                         items = freshSeries,
                         onSeeAll = null,
@@ -552,13 +549,12 @@ private fun SeriesVodContent(
                             onClick = { if (isLocked) onProtectedSeriesClick(series.id) else onSeriesClick(series.id) },
                             onLongClick = { onShowDialog(series) }
                         )
-                    }
                 }
             }
-
+            }
             if (topRatedSeries.isNotEmpty()) {
-                item("top_row") {
-                    CategoryRow(
+            item(key = "top_rated_row") {
+                CategoryRow(
                         title = stringResource(R.string.library_lens_top_rated),
                         items = topRatedSeries,
                         onSeeAll = null,
@@ -571,16 +567,16 @@ private fun SeriesVodContent(
                             onClick = { if (isLocked) onProtectedSeriesClick(series.id) else onSeriesClick(series.id) },
                             onLongClick = { onShowDialog(series) }
                         )
-                    }
                 }
             }
-
-            items(
-                items = uiState.seriesByCategory.entries.filter { (name, items) ->
+            }
+            val catEntries = uiState.seriesByCategory.entries
+                .filter { (name, items) ->
                     name != uiState.favoriteCategoryName && name in visibleCategoryNames && items.isNotEmpty()
-                }.take(8),
-                key = { it.key }
-            ) { (categoryName, seriesList) ->
+                }.take(8).toList()
+            items(catEntries, key = { it.key }) { entry ->
+                val categoryName = entry.key
+                val seriesList = entry.value
                 val matchedCategory = categoryByName[categoryName]
                 val lockedCategory = matchedCategory?.let(isCategoryLocked) == true
                 CategoryRow(
@@ -678,14 +674,16 @@ private fun SeriesVodContent(
                         add(
                             VodActionChip(
                                 key = "search_toggle",
-                                label = if (showSearchBar) "Hide Search" else "Search",
+                                label = stringResource(
+                                    if (showSearchBar) R.string.library_action_hide_search else R.string.search_title
+                                ),
                                 onClick = { showSearchBar = !showSearchBar }
                             )
                         )
                         add(
                             VodActionChip(
                                 key = "browse_options",
-                                label = "Filters & Sort",
+                                label = stringResource(R.string.library_action_filters_sort),
                                 onClick = { showBrowseOptions = true }
                             )
                         )
@@ -990,14 +988,16 @@ private fun SeriesVodClassicContent(
                     add(
                         VodActionChip(
                             key = "search_toggle",
-                            label = if (showSearchBar) "Hide Search" else "Search",
+                            label = stringResource(
+                                if (showSearchBar) R.string.library_action_hide_search else R.string.search_title
+                            ),
                             onClick = { showSearchBar = !showSearchBar }
                         )
                     )
                     add(
                         VodActionChip(
                             key = "browse_options",
-                            label = "Filters & Sort",
+                            label = stringResource(R.string.library_action_filters_sort),
                             onClick = { showBrowseOptions = true }
                         )
                     )

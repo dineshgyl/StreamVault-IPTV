@@ -57,6 +57,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.stringResource
@@ -308,22 +309,18 @@ fun FullEpgScreen(
                             ?.name
                             ?: stringResource(R.string.epg_filter_short),
                         onOpenCategoryPicker = {
-                            topNavVisible = false
                             showCategoryPicker = true
                         },
                         onJumpToNow = {
-                            topNavVisible = false
                             viewModel.jumpToNow()
                         },
                         onOpenSearch = {
-                            topNavVisible = false
                             showSearchOverlay = true
                         },
                         onOpenOptions = {
-                            topNavVisible = false
                             showGuideOptions = true
                         },
-                        onGuideInteract = { topNavVisible = false },
+                        onGuideInteract = { topNavVisible = true },
                         modifier = Modifier
                             .fillMaxWidth()
                             .padding(horizontal = 14.dp)
@@ -364,13 +361,13 @@ fun FullEpgScreen(
                                 selectedProgram = channel to program
                             }
                         },
-                        onChannelFocused = { channel, currentProgram ->
-                            topNavVisible = false
+                        onChannelFocused = { channel, currentProgram, isFirstRow ->
+                            topNavVisible = isFirstRow
                             focusedChannel = channel
                             focusedProgram = currentProgram
                         },
-                        onProgramFocused = { channel, program ->
-                            topNavVisible = false
+                        onProgramFocused = { channel, program, isFirstRow ->
+                            topNavVisible = isFirstRow
                             focusedChannel = channel
                             focusedProgram = program
                         }
@@ -403,7 +400,6 @@ fun FullEpgScreen(
             onQueryChange = viewModel::updateProgramSearchQuery,
             onClear = viewModel::clearProgramSearch,
             onDismiss = {
-                viewModel.clearProgramSearch()
                 showSearchOverlay = false
             }
         )
@@ -669,7 +665,7 @@ private fun GuideProgramSearchRow(
     query: String,
     onQueryChange: (String) -> Unit,
     onClear: () -> Unit,
-    onSearch: (() -> Unit)? = null,
+    onSearch: ((String) -> Unit)? = null,
     focusRequester: FocusRequester? = null,
     autoRequestFocus: Boolean = false,
     contentPadding: PaddingValues = PaddingValues(horizontal = 24.dp, vertical = 12.dp),
@@ -724,7 +720,7 @@ private fun GuideProgramSearchRow(
                 focusRequester = resolvedFocusRequester,
                 autoRequestFocus = autoRequestFocus,
                 refocusToken = refocusToken,
-                onSearch = onSearch,
+                onSearch = { onSearch?.invoke(localQuery.trim()) },
                 onActivated = onSearchFieldActivated
             )
             Box(modifier = Modifier.widthIn(min = 104.dp), contentAlignment = Alignment.CenterEnd) {
@@ -752,10 +748,11 @@ private fun GuideSearchField(
     focusRequester: FocusRequester = remember { FocusRequester() },
     autoRequestFocus: Boolean = false,
     refocusToken: Int = 0,
-    onSearch: (() -> Unit)? = null,
+    onSearch: ((String) -> Unit)? = null,
     onActivated: (() -> Unit)? = null
 ) {
     var isFocused by remember { mutableStateOf(false) }
+    val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
     val view = LocalView.current
     val context = LocalContext.current
@@ -865,8 +862,9 @@ private fun GuideSearchField(
                     cursorBrush = SolidColor(Primary),
                     keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                     keyboardActions = KeyboardActions(onSearch = {
+                        focusManager.clearFocus(force = true)
                         keyboardController?.hide()
-                        onSearch?.invoke()
+                        onSearch?.invoke(value.trim())
                     })
                 )
             }
@@ -1669,9 +1667,9 @@ private fun GuideSearchOverlay(
     onDismiss: () -> Unit
 ) {
     val searchFocusRequester = remember { FocusRequester() }
-    val applySearchAndClose = remember(query, onQueryChange, onDismiss) {
-        {
-            onQueryChange(query.trim())
+    val applySearchAndClose = remember(onQueryChange, onDismiss) {
+        { submittedQuery: String ->
+            onQueryChange(submittedQuery)
             onDismiss()
         }
     }
@@ -1715,7 +1713,7 @@ private fun GuideSearchOverlay(
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         GuideShortcutChip(
                             label = stringResource(R.string.epg_search_apply),
-                            onClick = applySearchAndClose
+                            onClick = { applySearchAndClose(query.trim()) }
                         )
                         GuideShortcutChip(
                             label = stringResource(R.string.epg_clear_search_close),
@@ -2042,8 +2040,8 @@ fun EpgGrid(
     now: Long,
     onChannelClick: (Channel) -> Unit,
     onProgramClick: (Channel, Program) -> Unit,
-    onChannelFocused: (Channel, Program?) -> Unit,
-    onProgramFocused: (Channel, Program) -> Unit
+    onChannelFocused: (Channel, Program?, Boolean) -> Unit,
+    onProgramFocused: (Channel, Program, Boolean) -> Unit
 ) {
     val channelRailWidth = 180.dp
     val timelineGap = 4.dp
@@ -2090,10 +2088,11 @@ fun EpgGrid(
                 itemsIndexed(
                     items = channels,
                     key = { index, channel -> epgChannelKey(channel, index) }
-                ) { _, channel ->
+                ) { index, channel ->
                     val programs = channel.guideLookupKey()?.let { lookupKey ->
                         programsByChannel[lookupKey].orEmpty()
                     }.orEmpty()
+                    val isFirstRow = index == 0
                     EpgRow(
                         channel = channel,
                         isFavorite = channel.id in favoriteChannelIds,
@@ -2110,9 +2109,9 @@ fun EpgGrid(
                         markerStepMs = markerStepMs,
                         scrollState = horizontalScrollState,
                         onChannelClick = { onChannelClick(channel) },
-                        onChannelFocused = { onChannelFocused(channel, it) },
+                        onChannelFocused = { onChannelFocused(channel, it, isFirstRow) },
                         onProgramClick = { program -> onProgramClick(channel, program) },
-                        onProgramFocused = { program -> onProgramFocused(channel, program) }
+                        onProgramFocused = { program -> onProgramFocused(channel, program, isFirstRow) }
                     )
                 }
             }
@@ -2453,7 +2452,12 @@ fun ProgramItem(
     val startRatio = ((visibleStart - windowStart).toFloat() / totalDuration.toFloat()).coerceIn(0f, 1f)
     val widthRatio = ((visibleEnd - visibleStart).toFloat() / totalDuration.toFloat()).coerceIn(0f, 1f)
     val itemStart = totalTimelineWidth * startRatio
-    val itemWidth = (totalTimelineWidth * widthRatio).coerceAtLeast(72.dp)
+    val minimumItemWidth = when (density) {
+        GuideDensity.COMPACT -> 40.dp
+        GuideDensity.COMFORTABLE -> 48.dp
+        GuideDensity.CINEMATIC -> 56.dp
+    }
+    val itemWidth = (totalTimelineWidth * widthRatio).coerceAtLeast(minimumItemWidth)
     val isCompactCell = itemWidth < 148.dp
     val isVeryCompactCell = itemWidth < 116.dp
     val outerVerticalPadding = when (density) {

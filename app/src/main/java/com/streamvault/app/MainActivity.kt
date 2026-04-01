@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.LayoutDirection
 import android.content.res.Configuration
 import android.text.TextUtils
 import android.view.View
+import androidx.core.view.WindowCompat
 import java.util.Locale
 import android.content.Context
 import android.content.ContextWrapper
@@ -95,6 +96,10 @@ class MainActivity : ComponentActivity() {
             )
         }
         super.onCreate(savedInstanceState)
+        // Disable legacy window-fitting so Compose receives IME insets directly.
+        // This fixes keyboard-covers-input-field on API 30+ where adjustResize is
+        // ignored when the theme sets windowFullscreen=true.
+        WindowCompat.setDecorFitsSystemWindows(window, false)
         _pictureInPictureModeFlow.value = isInPictureInPictureMode
         handleExternalIntent(intent)
         if (isTelevisionDevice()) {

@@ -803,7 +803,11 @@ class MoviesViewModel @Inject constructor(
             hiddenProviderCategoryIds = params.hiddenCategoryIds,
             loadItemsByIds = { ids -> movieRepository.getMoviesByIds(ids).first() },
             loadCategoryPreviewRows = { providerId, limit ->
-                movieRepository.getCategoryPreviewRows(providerId, limit).first()
+                movieRepository.getCategoryPreviewRows(
+                    providerId = providerId,
+                    categoryIds = params.providerCategories.take(8).map { it.id },
+                    limitPerCategory = limit
+                ).first()
             },
             itemId = Movie::id,
             itemCategoryId = Movie::categoryId,

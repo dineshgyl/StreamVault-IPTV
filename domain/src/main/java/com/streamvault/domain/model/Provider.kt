@@ -14,6 +14,7 @@ data class Provider(
     val expirationDate: Long? = null,
     val apiVersion: String? = null,
     val allowedOutputFormats: List<String> = emptyList(),
+    val xtreamFastSyncEnabled: Boolean = true,
     val status: ProviderStatus = ProviderStatus.UNKNOWN,
     val lastSyncedAt: Long = 0L,
     val createdAt: Long = System.currentTimeMillis()

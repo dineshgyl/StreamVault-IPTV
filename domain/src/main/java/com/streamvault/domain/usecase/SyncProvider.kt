@@ -10,7 +10,8 @@ import javax.inject.Inject
 
 data class SyncProviderCommand(
     val providerId: Long,
-    val force: Boolean = true
+    val force: Boolean = true,
+    val movieFastSyncOverride: Boolean? = null
 )
 
 sealed class SyncProviderResult {
@@ -41,6 +42,7 @@ class SyncProvider @Inject constructor(
             val refreshResult = providerRepository.refreshProviderData(
                 providerId = command.providerId,
                 force = command.force,
+                movieFastSyncOverride = command.movieFastSyncOverride,
                 onProgress = onProgress
             )
         ) {

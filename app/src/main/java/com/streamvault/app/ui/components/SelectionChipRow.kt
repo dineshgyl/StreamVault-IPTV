@@ -15,7 +15,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -30,6 +32,7 @@ import com.streamvault.app.ui.theme.OnSurfaceDim
 import com.streamvault.app.ui.theme.Primary
 import com.streamvault.app.ui.theme.SurfaceElevated
 import com.streamvault.app.ui.theme.SurfaceHighlight
+import com.streamvault.app.ui.interaction.mouseClickable
 import com.streamvault.app.ui.interaction.rememberTvInteractionSounds
 
 data class SelectionChip(
@@ -94,17 +97,27 @@ fun ChipRowSection(
             ) { chip ->
                 val isSelected = chip.key == selectedKey
                 var wasFocused by remember(chip.key) { mutableStateOf(false) }
+                val focusRequester = remember(chip.key) { FocusRequester() }
                 Surface(
                     onClick = {
                         sounds.playSelect()
                         chip.onClick()
                     },
-                    modifier = Modifier.onFocusChanged {
-                        if (it.isFocused && !wasFocused) {
-                            sounds.playNavigate()
-                        }
-                        wasFocused = it.isFocused
-                    },
+                    modifier = Modifier
+                        .focusRequester(focusRequester)
+                        .mouseClickable(
+                            focusRequester = focusRequester,
+                            onClick = {
+                                sounds.playSelect()
+                                chip.onClick()
+                            }
+                        )
+                        .onFocusChanged {
+                            if (it.isFocused && !wasFocused) {
+                                sounds.playNavigate()
+                            }
+                            wasFocused = it.isFocused
+                        },
                     colors = ClickableSurfaceDefaults.colors(
                         containerColor = if (isSelected) Primary.copy(alpha = 0.18f) else SurfaceElevated,
                         focusedContainerColor = if (isSelected && focusedContainerBoostWhenSelected) Primary.copy(alpha = 0.28f) else SurfaceHighlight,

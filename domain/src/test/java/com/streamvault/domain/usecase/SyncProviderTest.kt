@@ -106,6 +106,7 @@ private class FakeSyncProviderRepository(
         username: String,
         password: String,
         name: String,
+        xtreamFastSyncEnabled: Boolean,
         onProgress: ((String) -> Unit)?,
         id: Long?
     ): Result<Provider> = error("Not used in test")

@@ -47,7 +47,8 @@ object DatabaseModule {
                 StreamVaultDatabase.MIGRATION_19_20,
                 StreamVaultDatabase.MIGRATION_20_21,
                 StreamVaultDatabase.MIGRATION_21_22,
-                StreamVaultDatabase.MIGRATION_22_23
+                StreamVaultDatabase.MIGRATION_22_23,
+                StreamVaultDatabase.MIGRATION_23_24
             )
             // NOTE: fallbackToDestructiveMigration() intentionally removed.
             // All future schema changes MUST add a corresponding Migration in StreamVaultDatabase.
@@ -66,4 +67,5 @@ object DatabaseModule {
     @Provides fun provideVirtualGroupDao(db: StreamVaultDatabase): VirtualGroupDao = db.virtualGroupDao()
     @Provides fun providePlaybackHistoryDao(db: StreamVaultDatabase): PlaybackHistoryDao = db.playbackHistoryDao()
     @Provides fun provideSyncMetadataDao(db: StreamVaultDatabase): SyncMetadataDao = db.syncMetadataDao()
+    @Provides fun provideMovieCategoryHydrationDao(db: StreamVaultDatabase): MovieCategoryHydrationDao = db.movieCategoryHydrationDao()
 }

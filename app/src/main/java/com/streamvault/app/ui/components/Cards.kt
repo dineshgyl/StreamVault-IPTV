@@ -33,6 +33,7 @@ import kotlinx.coroutines.flow.stateIn
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -74,6 +75,7 @@ import com.streamvault.domain.model.Channel
 import com.streamvault.domain.model.Movie
 import com.streamvault.domain.model.Series
 import com.streamvault.app.ui.design.FocusSpec
+import com.streamvault.app.ui.interaction.mouseClickable
 import com.streamvault.app.ui.interaction.rememberTvInteractionSounds
 
 private object ChannelProgressTicker {
@@ -106,6 +108,7 @@ fun FocusableCard(
 ) {
     var isFocused by remember { mutableStateOf(false) }
     val sounds = rememberTvInteractionSounds()
+    val focusRequester = remember { androidx.compose.ui.focus.FocusRequester() }
 
     val scale by animateFloatAsState(
         targetValue = if (isFocused) {
@@ -124,8 +127,16 @@ fun FocusableCard(
         },
         onLongClick = onLongClick,
         modifier = modifier
+            .focusRequester(focusRequester)
             .width(width)
             .height(height)
+            .mouseClickable(
+                focusRequester = focusRequester,
+                onClick = {
+                    sounds.playSelect()
+                    onClick()
+                }
+            )
             .graphicsLayer {
                 scaleX = scale
                 scaleY = scale

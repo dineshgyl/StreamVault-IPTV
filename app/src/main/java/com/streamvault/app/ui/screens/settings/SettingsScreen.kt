@@ -12,6 +12,8 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.platform.LocalUriHandler
@@ -25,6 +27,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.clickable
 import androidx.compose.material3.Switch
 import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Button
 import androidx.compose.material3.OutlinedButton
@@ -62,6 +65,7 @@ import androidx.compose.ui.text.style.TextAlign
 import com.streamvault.app.R
 import java.util.Locale
 import com.streamvault.app.BuildConfig
+import com.streamvault.app.ui.interaction.mouseClickable
 
 
 @Composable
@@ -138,9 +142,22 @@ fun SettingsScreen(
     var showSubtitleTextColorDialog by rememberSaveable { mutableStateOf(false) }
     var showSubtitleBackgroundDialog by rememberSaveable { mutableStateOf(false) }
     var showWifiQualityDialog by rememberSaveable { mutableStateOf(false) }
+    var showProviderSyncDialog by rememberSaveable { mutableStateOf(false) }
+    var showCustomProviderSyncDialog by rememberSaveable { mutableStateOf(false) }
+    var pendingSyncProviderId by rememberSaveable { mutableStateOf<Long?>(null) }
+    var customSyncSelections by rememberSaveable {
+        mutableStateOf(
+            setOf(
+                ProviderSyncSelection.TV,
+                ProviderSyncSelection.MOVIES,
+                ProviderSyncSelection.EPG
+            )
+        )
+    }
     var showEthernetQualityDialog by rememberSaveable { mutableStateOf(false) }
     var showClearHistoryDialog by rememberSaveable { mutableStateOf(false) }
     var categorySortDialogType by rememberSaveable { mutableStateOf<String?>(null) }
+    var selectedCategory by rememberSaveable { mutableStateOf(0) }
     var pinError by rememberSaveable { mutableStateOf<String?>(null) }
     var pendingAction by remember { mutableStateOf<ParentalAction?>(null) }
     var pendingProtectionLevel by rememberSaveable { mutableStateOf<Int?>(null) }
@@ -176,483 +193,457 @@ fun SettingsScreen(
             compactHeader = true,
             showScreenHeader = false
         ) {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(start = 8.dp, top = 80.dp, end = 8.dp, bottom = 32.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp),
-                userScrollEnabled = !uiState.isSyncing
-            ) {
-            // Providers section
-            item {
-                SettingsSectionHeader(
-                    title = stringResource(R.string.settings_providers),
-                    subtitle = stringResource(R.string.settings_providers_subtitle)
-                )
-            }
-
-            if (uiState.providers.isEmpty()) {
-                item {
-                    TvEmptyState(
-                        title = stringResource(R.string.settings_no_providers),
-                        subtitle = stringResource(R.string.settings_no_providers_subtitle),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 8.dp, bottom = 8.dp)
-                    )
-                }
-            } else {
-                item {
-                    var selectedProviderId by rememberSaveable(uiState.providers, uiState.activeProviderId) {
-                        mutableStateOf(uiState.activeProviderId ?: uiState.providers.first().id)
-                    }
-                    LaunchedEffect(uiState.providers, uiState.activeProviderId) {
-                        val availableIds = uiState.providers.map { it.id }.toSet()
-                        if (selectedProviderId !in availableIds) {
-                            selectedProviderId = uiState.activeProviderId ?: uiState.providers.first().id
-                        }
-                    }
-
-                    val selectedProvider = uiState.providers.firstOrNull { it.id == selectedProviderId }
-                        ?: uiState.providers.first()
-
-                    Text(
-                        text = stringResource(R.string.settings_provider_selector_hint),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = OnSurfaceDim,
-                        modifier = Modifier.padding(bottom = 10.dp)
-                    )
-
-                    LazyRow(
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                        contentPadding = PaddingValues(bottom = 14.dp)
-                    ) {
-                        items(uiState.providers, key = { it.id }) { provider ->
-                            ProviderSelectorTab(
-                                provider = provider,
-                                isSelected = provider.id == selectedProvider.id,
-                                isActive = provider.id == uiState.activeProviderId,
-                                onClick = { selectedProviderId = provider.id }
-                            )
-                        }
-                    }
-
-                    ProviderSettingsCard(
-                        provider = selectedProvider,
-                        isActive = selectedProvider.id == uiState.activeProviderId,
-                        isSyncing = uiState.isSyncing,
-                        diagnostics = uiState.diagnosticsByProvider[selectedProvider.id],
-                        syncWarnings = uiState.syncWarningsByProvider[selectedProvider.id].orEmpty(),
-                        onRetryWarningAction = { action -> viewModel.retryWarningAction(selectedProvider.id, action) },
-                        onConnect = { viewModel.setActiveProvider(selectedProvider.id) },
-                        onRefresh = { viewModel.refreshProvider(selectedProvider.id) },
-                        onDelete = { viewModel.deleteProvider(selectedProvider.id) },
-                        onEdit = { onEditProvider(selectedProvider) },
-                        onParentalControl = { onNavigateToParentalControl(selectedProvider.id) }
-                    )
-                }
-            }
-
-            // Add Provider button
-            item {
-                Spacer(Modifier.height(8.dp))
-                Surface(
-                    onClick = onAddProvider,
-                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
-                    colors = ClickableSurfaceDefaults.colors(
-                        containerColor = Primary.copy(alpha = 0.15f),
-                        focusedContainerColor = Primary.copy(alpha = 0.3f)
-                    ),
-                    scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
-                    modifier = Modifier.fillMaxWidth()
+            Row(modifier = Modifier.fillMaxSize()) {
+                // ── Left navigation rail ──────────────────────────────────────
+                LazyColumn(
+                    modifier = Modifier
+                        .width(236.dp)
+                        .fillMaxHeight()
+                        .background(Color.Black.copy(alpha = 0.25f)),
+                    contentPadding = PaddingValues(top = 76.dp, bottom = 16.dp),
+                    verticalArrangement = Arrangement.spacedBy(2.dp)
                 ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        horizontalArrangement = Arrangement.Center,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = stringResource(R.string.settings_add_provider),
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = Primary
-                        )
-                    }
+                    item { SettingsNavItem(stringResource(R.string.settings_providers), "P", Primary, selectedCategory == 0) { selectedCategory = 0 } }
+                    item { SettingsNavItem(stringResource(R.string.settings_playback), ">", Color(0xFF9E8FFF), selectedCategory == 1) { selectedCategory = 1 } }
+                    item { SettingsNavItem(stringResource(R.string.settings_privacy), "L", Color(0xFFFFB74D), selectedCategory == 2) { selectedCategory = 2 } }
+                    item { SettingsNavItem(stringResource(R.string.settings_recording_title), "R", Color(0xFFEF5350), selectedCategory == 3) { selectedCategory = 3 } }
+                    item { SettingsNavItem(stringResource(R.string.settings_backup_restore), "B", Color(0xFF42A5F5), selectedCategory == 4) { selectedCategory = 4 } }
+                    item { SettingsNavItem(stringResource(R.string.settings_about), "i", Color(0xFF78909C), selectedCategory == 5) { selectedCategory = 5 } }
                 }
-            }
 
-            // Parental Control
-            item {
-                Spacer(Modifier.height(16.dp))
-                SettingsSectionHeader(
-                    title = stringResource(R.string.settings_parental_control),
-                    subtitle = stringResource(R.string.settings_parental_subtitle)
+                // Thin vertical separator
+                Box(
+                    Modifier
+                        .width(1.dp)
+                        .fillMaxHeight()
+                        .background(Color.White.copy(alpha = 0.07f))
                 )
-                ParentalControlCard(
-                    level = uiState.parentalControlLevel,
-                    hasParentalPin = uiState.hasParentalPin,
-                    hasActiveProvider = uiState.activeProviderId != null,
-                    onChangeLevel = {
-                        pendingProtectionLevel = null
-                        if (uiState.hasParentalPin) {
-                            pendingAction = ParentalAction.ChangeLevel
-                            showPinDialog = true
+
+                // ── Right content pane ────────────────────────────────────────
+                LazyColumn(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxHeight(),
+                    contentPadding = PaddingValues(start = 20.dp, top = 76.dp, end = 20.dp, bottom = 32.dp),
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    userScrollEnabled = !uiState.isSyncing
+                ) {
+                    // ── 0: Providers ──────────────────────────────────────────
+                    if (selectedCategory == 0) {
+                        if (uiState.providers.isEmpty()) {
+                            item {
+                                TvEmptyState(
+                                    title = stringResource(R.string.settings_no_providers),
+                                    subtitle = stringResource(R.string.settings_no_providers_subtitle),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(top = 8.dp, bottom = 8.dp)
+                                )
+                            }
                         } else {
-                            showLevelDialog = true
+                            item {
+                                var selectedProviderId by rememberSaveable(uiState.providers, uiState.activeProviderId) {
+                                    mutableStateOf(uiState.activeProviderId ?: uiState.providers.first().id)
+                                }
+                                LaunchedEffect(uiState.providers, uiState.activeProviderId) {
+                                    val availableIds = uiState.providers.map { it.id }.toSet()
+                                    if (selectedProviderId !in availableIds) {
+                                        selectedProviderId = uiState.activeProviderId ?: uiState.providers.first().id
+                                    }
+                                }
+                                val selectedProvider = uiState.providers.firstOrNull { it.id == selectedProviderId }
+                                    ?: uiState.providers.first()
+
+                                Text(
+                                    text = stringResource(R.string.settings_provider_selector_hint),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = OnSurfaceDim,
+                                    modifier = Modifier.padding(bottom = 10.dp)
+                                )
+                                LazyRow(
+                                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                    contentPadding = PaddingValues(bottom = 14.dp)
+                                ) {
+                                    items(uiState.providers, key = { it.id }) { provider ->
+                                        ProviderSelectorTab(
+                                            provider = provider,
+                                            isSelected = provider.id == selectedProvider.id,
+                                            isActive = provider.id == uiState.activeProviderId,
+                                            onClick = { selectedProviderId = provider.id }
+                                        )
+                                    }
+                                }
+                                ProviderSettingsCard(
+                                    provider = selectedProvider,
+                                    isActive = selectedProvider.id == uiState.activeProviderId,
+                                    isSyncing = uiState.isSyncing,
+                                    diagnostics = uiState.diagnosticsByProvider[selectedProvider.id],
+                                    syncWarnings = uiState.syncWarningsByProvider[selectedProvider.id].orEmpty(),
+                                    onRetryWarningAction = { action -> viewModel.retryWarningAction(selectedProvider.id, action) },
+                                    onConnect = { viewModel.setActiveProvider(selectedProvider.id) },
+                                    onRefresh = {
+                                        pendingSyncProviderId = selectedProvider.id
+                                        customSyncSelections = buildSet {
+                                            add(ProviderSyncSelection.TV)
+                                            add(ProviderSyncSelection.MOVIES)
+                                            add(ProviderSyncSelection.EPG)
+                                            if (selectedProvider.type == ProviderType.XTREAM_CODES) {
+                                                add(ProviderSyncSelection.SERIES)
+                                            }
+                                        }
+                                        showProviderSyncDialog = true
+                                    },
+                                    onDelete = { viewModel.deleteProvider(selectedProvider.id) },
+                                    onEdit = { onEditProvider(selectedProvider) },
+                                    onParentalControl = { onNavigateToParentalControl(selectedProvider.id) }
+                                )
+                            }
                         }
-                    },
-                    onChangePin = {
-                        pendingProtectionLevel = null
-                        pendingAction = if (uiState.hasParentalPin) {
-                            ParentalAction.ChangePin
+                        item {
+                            Surface(
+                                onClick = onAddProvider,
+                                shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+                                colors = ClickableSurfaceDefaults.colors(
+                                    containerColor = Primary.copy(alpha = 0.15f),
+                                    focusedContainerColor = Primary.copy(alpha = 0.3f)
+                                ),
+                                scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(16.dp),
+                                    horizontalArrangement = Arrangement.Center,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = stringResource(R.string.settings_add_provider),
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        color = Primary
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // ── 1: Playback ───────────────────────────────────────────
+                    else if (selectedCategory == 1) {
+                        item {
+                            ClickableSettingsRow(
+                                label = stringResource(R.string.settings_live_tv_channel_mode),
+                                value = stringResource(uiState.liveTvChannelMode.labelResId()),
+                                onClick = { showLiveTvModeDialog = true }
+                            )
+                            ClickableSettingsRow(
+                                label = stringResource(R.string.settings_live_channel_numbering_mode),
+                                value = stringResource(uiState.liveChannelNumberingMode.labelResId()),
+                                onClick = { showLiveChannelNumberingDialog = true }
+                            )
+                            ClickableSettingsRow(
+                                label = stringResource(R.string.settings_vod_view_mode),
+                                value = stringResource(uiState.vodViewMode.labelResId()),
+                                onClick = { showVodViewModeDialog = true }
+                            )
+                            HorizontalDivider(color = Color.White.copy(alpha = 0.07f), modifier = Modifier.padding(vertical = 4.dp))
+                            ClickableSettingsRow(
+                                label = stringResource(R.string.settings_category_sort_live),
+                                value = formatCategorySortModeLabel(uiState.categorySortModes[ContentType.LIVE] ?: CategorySortMode.DEFAULT, context),
+                                onClick = { categorySortDialogType = ContentType.LIVE.name }
+                            )
+                            ClickableSettingsRow(
+                                label = stringResource(R.string.settings_category_sort_movies),
+                                value = formatCategorySortModeLabel(uiState.categorySortModes[ContentType.MOVIE] ?: CategorySortMode.DEFAULT, context),
+                                onClick = { categorySortDialogType = ContentType.MOVIE.name }
+                            )
+                            ClickableSettingsRow(
+                                label = stringResource(R.string.settings_category_sort_series),
+                                value = formatCategorySortModeLabel(uiState.categorySortModes[ContentType.SERIES] ?: CategorySortMode.DEFAULT, context),
+                                onClick = { categorySortDialogType = ContentType.SERIES.name }
+                            )
+                            HorizontalDivider(color = Color.White.copy(alpha = 0.07f), modifier = Modifier.padding(vertical = 4.dp))
+                            Surface(
+                                onClick = { showLanguageDialog = true },
+                                shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+                                colors = ClickableSurfaceDefaults.colors(
+                                    containerColor = Color.Transparent,
+                                    focusedContainerColor = Primary.copy(alpha = 0.15f)
+                                ),
+                                scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 12.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(text = stringResource(R.string.settings_app_language), style = MaterialTheme.typography.bodyMedium, color = OnSurface)
+                                    Text(text = appLanguageLabel, style = MaterialTheme.typography.bodyMedium, color = Primary)
+                                }
+                            }
+                            HorizontalDivider(color = Color.White.copy(alpha = 0.07f), modifier = Modifier.padding(vertical = 4.dp))
+                            ClickableSettingsRow(
+                                label = stringResource(R.string.settings_default_playback_speed),
+                                value = playbackSpeedLabel,
+                                onClick = { showPlaybackSpeedDialog = true }
+                            )
+                            ClickableSettingsRow(
+                                label = stringResource(R.string.settings_preferred_audio_language),
+                                value = preferredAudioLanguageLabel,
+                                onClick = { showAudioLanguageDialog = true }
+                            )
+                            ClickableSettingsRow(
+                                label = stringResource(R.string.settings_subtitle_size),
+                                value = subtitleSizeLabel,
+                                onClick = { showSubtitleSizeDialog = true }
+                            )
+                            ClickableSettingsRow(
+                                label = stringResource(R.string.settings_subtitle_text_color),
+                                value = subtitleTextColorLabel,
+                                onClick = { showSubtitleTextColorDialog = true }
+                            )
+                            ClickableSettingsRow(
+                                label = stringResource(R.string.settings_subtitle_background),
+                                value = subtitleBackgroundLabel,
+                                onClick = { showSubtitleBackgroundDialog = true }
+                            )
+                            HorizontalDivider(color = Color.White.copy(alpha = 0.07f), modifier = Modifier.padding(vertical = 4.dp))
+                            ClickableSettingsRow(
+                                label = stringResource(R.string.settings_wifi_quality_cap),
+                                value = wifiQualityLabel,
+                                onClick = { showWifiQualityDialog = true }
+                            )
+                            ClickableSettingsRow(
+                                label = stringResource(R.string.settings_ethernet_quality_cap),
+                                value = ethernetQualityLabel,
+                                onClick = { showEthernetQualityDialog = true }
+                            )
+                        }
+                        item {
+                            InternetSpeedTestCard(
+                                valueLabel = lastSpeedTestLabel,
+                                summary = lastSpeedTestSummary,
+                                recommendationLabel = speedTestRecommendationLabel,
+                                isRunning = uiState.isRunningInternetSpeedTest,
+                                canApplyRecommendation = uiState.lastSpeedTest != null,
+                                onRunTest = viewModel::runInternetSpeedTest,
+                                onApplyWifi = viewModel::applySpeedTestRecommendationToWifi,
+                                onApplyEthernet = viewModel::applySpeedTestRecommendationToEthernet
+                            )
+                        }
+                    }
+
+                    // ── 2: Privacy & Parental ─────────────────────────────────
+                    else if (selectedCategory == 2) {
+                        item {
+                            ParentalControlCard(
+                                level = uiState.parentalControlLevel,
+                                hasParentalPin = uiState.hasParentalPin,
+                                hasActiveProvider = uiState.activeProviderId != null,
+                                onChangeLevel = {
+                                    pendingProtectionLevel = null
+                                    if (uiState.hasParentalPin) {
+                                        pendingAction = ParentalAction.ChangeLevel
+                                        showPinDialog = true
+                                    } else {
+                                        showLevelDialog = true
+                                    }
+                                },
+                                onChangePin = {
+                                    pendingProtectionLevel = null
+                                    pendingAction = if (uiState.hasParentalPin) {
+                                        ParentalAction.ChangePin
+                                    } else {
+                                        ParentalAction.SetNewPin
+                                    }
+                                    showPinDialog = true
+                                }
+                            )
+                        }
+                        item {
+                            HorizontalDivider(color = Color.White.copy(alpha = 0.07f), modifier = Modifier.padding(vertical = 4.dp))
+                            Surface(
+                                onClick = { viewModel.toggleIncognitoMode() },
+                                shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+                                colors = ClickableSurfaceDefaults.colors(
+                                    containerColor = Color.Transparent,
+                                    focusedContainerColor = Primary.copy(alpha = 0.15f)
+                                ),
+                                scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 12.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(text = stringResource(R.string.settings_incognito_mode), style = MaterialTheme.typography.bodyMedium, color = OnSurface)
+                                        Text(text = stringResource(R.string.settings_incognito_mode_subtitle), style = MaterialTheme.typography.bodySmall, color = OnBackground.copy(alpha = 0.6f))
+                                    }
+                                    Switch(checked = uiState.isIncognitoMode, onCheckedChange = { viewModel.toggleIncognitoMode() })
+                                }
+                            }
+                            Spacer(Modifier.height(2.dp))
+                            Surface(
+                                onClick = { viewModel.toggleXtreamTextClassification() },
+                                shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+                                colors = ClickableSurfaceDefaults.colors(
+                                    containerColor = Color.Transparent,
+                                    focusedContainerColor = Primary.copy(alpha = 0.15f)
+                                ),
+                                scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 12.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(text = stringResource(R.string.settings_xtream_text_classification), style = MaterialTheme.typography.bodyMedium, color = OnSurface)
+                                        Text(text = stringResource(R.string.settings_xtream_text_classification_subtitle), style = MaterialTheme.typography.bodySmall, color = OnBackground.copy(alpha = 0.6f))
+                                    }
+                                    Switch(checked = uiState.useXtreamTextClassification, onCheckedChange = { viewModel.toggleXtreamTextClassification() })
+                                }
+                            }
+                            Spacer(Modifier.height(2.dp))
+                            Surface(
+                                onClick = { showClearHistoryDialog = true },
+                                shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+                                colors = ClickableSurfaceDefaults.colors(
+                                    containerColor = Color.Transparent,
+                                    focusedContainerColor = Primary.copy(alpha = 0.15f)
+                                ),
+                                scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 12.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(text = stringResource(R.string.settings_clear_history), style = MaterialTheme.typography.bodyMedium, color = OnSurface)
+                                        Text(text = stringResource(R.string.settings_clear_history_subtitle), style = MaterialTheme.typography.bodySmall, color = OnBackground.copy(alpha = 0.6f))
+                                    }
+                                    Text(text = stringResource(R.string.settings_clear_history_confirm), style = MaterialTheme.typography.labelLarge, color = Primary)
+                                }
+                            }
+                        }
+                    }
+
+                    // ── 3: Recordings ─────────────────────────────────────────
+                    else if (selectedCategory == 3) {
+                        item {
+                            RecordingOverviewCard(
+                                outputDirectory = uiState.recordingStorageState.outputDirectory,
+                                availableBytes = uiState.recordingStorageState.availableBytes,
+                                isWritable = uiState.recordingStorageState.isWritable,
+                                activeCount = uiState.recordingItems.count { it.status == RecordingStatus.RECORDING },
+                                scheduledCount = uiState.recordingItems.count { it.status == RecordingStatus.SCHEDULED }
+                            )
+                        }
+                        if (uiState.recordingItems.isEmpty()) {
+                            item {
+                                Surface(
+                                    onClick = {},
+                                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(12.dp)),
+                                    colors = ClickableSurfaceDefaults.colors(
+                                        containerColor = Color.Transparent,
+                                        focusedContainerColor = Primary.copy(alpha = 0.1f)
+                                    ),
+                                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp, bottom = 8.dp)
+                                ) {
+                                    TvEmptyState(
+                                        title = stringResource(R.string.settings_recording_empty_title),
+                                        subtitle = stringResource(R.string.settings_recording_empty_subtitle)
+                                    )
+                                }
+                            }
                         } else {
-                            ParentalAction.SetNewPin
+                            items(uiState.recordingItems, key = { it.id }) { item ->
+                                RecordingItemCard(
+                                    item = item,
+                                    onStop = { viewModel.stopRecording(item.id) },
+                                    onCancel = { viewModel.cancelRecording(item.id) },
+                                    onDelete = { viewModel.deleteRecording(item.id) }
+                                )
+                            }
                         }
-                        showPinDialog = true
                     }
-                )
-            }
 
-            item {
-                Spacer(Modifier.height(16.dp))
-                SettingsSectionHeader(
-                    title = stringResource(R.string.settings_category_sorting_title),
-                    subtitle = stringResource(R.string.settings_category_sorting_subtitle)
-                )
-                ClickableSettingsRow(
-                    label = stringResource(R.string.settings_category_sort_live),
-                    value = formatCategorySortModeLabel(
-                        uiState.categorySortModes[ContentType.LIVE] ?: CategorySortMode.DEFAULT,
-                        context
-                    ),
-                    onClick = { categorySortDialogType = ContentType.LIVE.name }
-                )
-                ClickableSettingsRow(
-                    label = stringResource(R.string.settings_category_sort_movies),
-                    value = formatCategorySortModeLabel(
-                        uiState.categorySortModes[ContentType.MOVIE] ?: CategorySortMode.DEFAULT,
-                        context
-                    ),
-                    onClick = { categorySortDialogType = ContentType.MOVIE.name }
-                )
-                ClickableSettingsRow(
-                    label = stringResource(R.string.settings_category_sort_series),
-                    value = formatCategorySortModeLabel(
-                        uiState.categorySortModes[ContentType.SERIES] ?: CategorySortMode.DEFAULT,
-                        context
-                    ),
-                    onClick = { categorySortDialogType = ContentType.SERIES.name }
-                )
-            }
-
-            // Language Settings
-            item {
-                Spacer(Modifier.height(16.dp))
-                SettingsSectionHeader(
-                    title = stringResource(R.string.settings_language),
-                    subtitle = stringResource(R.string.settings_language_subtitle)
-                )
-
-                Surface(
-                    onClick = { showLanguageDialog = true },
-                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
-                    colors = ClickableSurfaceDefaults.colors(
-                        containerColor = SurfaceElevated,
-                        focusedContainerColor = Primary.copy(alpha = 0.2f)
-                    ),
-                    scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = stringResource(R.string.settings_app_language),
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = OnBackground
-                        )
-                        Text(
-                            text = appLanguageLabel,
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = Primary
-                        )
+                    // ── 4: Backup ─────────────────────────────────────────────
+                    else if (selectedCategory == 4) {
+                        item {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Surface(
+                                    onClick = { createDocumentLauncher.launch("streamvault_backup.json") },
+                                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(12.dp)),
+                                    colors = ClickableSurfaceDefaults.colors(
+                                        containerColor = Primary.copy(alpha = 0.12f),
+                                        focusedContainerColor = Primary.copy(alpha = 0.28f)
+                                    ),
+                                    scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(24.dp),
+                                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        Text(text = "\u2191", style = MaterialTheme.typography.titleLarge, color = Primary, fontWeight = FontWeight.Bold)
+                                        Text(text = stringResource(R.string.settings_backup_data), style = MaterialTheme.typography.titleSmall, color = Primary, textAlign = TextAlign.Center)
+                                        Text(text = stringResource(R.string.settings_backup_subtitle), style = MaterialTheme.typography.bodySmall, color = OnSurfaceDim, textAlign = TextAlign.Center)
+                                    }
+                                }
+                                Surface(
+                                    onClick = { openDocumentLauncher.launch(arrayOf("application/json")) },
+                                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(12.dp)),
+                                    colors = ClickableSurfaceDefaults.colors(
+                                        containerColor = Secondary.copy(alpha = 0.12f),
+                                        focusedContainerColor = Secondary.copy(alpha = 0.28f)
+                                    ),
+                                    scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Column(
+                                        modifier = Modifier.padding(24.dp),
+                                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                                        horizontalAlignment = Alignment.CenterHorizontally
+                                    ) {
+                                        Text(text = "\u2193", style = MaterialTheme.typography.titleLarge, color = Secondary, fontWeight = FontWeight.Bold)
+                                        Text(text = stringResource(R.string.settings_restore_data), style = MaterialTheme.typography.titleSmall, color = Secondary, textAlign = TextAlign.Center)
+                                        Text(text = stringResource(R.string.settings_backup_subtitle), style = MaterialTheme.typography.bodySmall, color = OnSurfaceDim, textAlign = TextAlign.Center)
+                                    }
+                                }
+                            }
+                        }
                     }
-                }
-            }
 
-            // Backup & Restore settings
-            item {
-                Spacer(Modifier.height(16.dp))
-                SettingsSectionHeader(
-                    title = stringResource(R.string.settings_backup_restore),
-                    subtitle = stringResource(R.string.settings_backup_subtitle)
-                )
-                
-                Row(horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                    Surface(
-                        onClick = { createDocumentLauncher.launch("streamvault_backup.json") },
-                        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
-                        colors = ClickableSurfaceDefaults.colors(
-                            containerColor = SurfaceElevated,
-                            focusedContainerColor = Primary.copy(alpha = 0.2f)
-                        ),
-                        scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text(
-                            text = stringResource(R.string.settings_backup_data),
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = OnBackground,
-                            modifier = Modifier.padding(16.dp),
-                            textAlign = TextAlign.Center
-                        )
-                    }
-                    
-                    Surface(
-                        onClick = { openDocumentLauncher.launch(arrayOf("application/json")) },
-                        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
-                        colors = ClickableSurfaceDefaults.colors(
-                            containerColor = SurfaceElevated,
-                            focusedContainerColor = Primary.copy(alpha = 0.2f)
-                        ),
-                        scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text(
-                            text = stringResource(R.string.settings_restore_data),
-                            style = MaterialTheme.typography.bodyLarge,
-                            color = OnBackground,
-                            modifier = Modifier.padding(16.dp),
-                            textAlign = TextAlign.Center
-                        )
-                    }
-                }
-            }
-
-            item {
-                Spacer(Modifier.height(16.dp))
-                SettingsSectionHeader(
-                    title = stringResource(R.string.settings_recording_title),
-                    subtitle = stringResource(R.string.settings_recording_subtitle)
-                )
-                RecordingOverviewCard(
-                    outputDirectory = uiState.recordingStorageState.outputDirectory,
-                    availableBytes = uiState.recordingStorageState.availableBytes,
-                    isWritable = uiState.recordingStorageState.isWritable,
-                    activeCount = uiState.recordingItems.count { it.status == RecordingStatus.RECORDING },
-                    scheduledCount = uiState.recordingItems.count { it.status == RecordingStatus.SCHEDULED }
-                )
-            }
-
-            if (uiState.recordingItems.isEmpty()) {
-                item {
-                    Surface(
-                        onClick = {},
-                        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(12.dp)),
-                        colors = ClickableSurfaceDefaults.colors(
-                            containerColor = Color.Transparent,
-                            focusedContainerColor = Primary.copy(alpha = 0.1f)
-                        ),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(top = 8.dp, bottom = 8.dp)
-                    ) {
-                        TvEmptyState(
-                            title = stringResource(R.string.settings_recording_empty_title),
-                            subtitle = stringResource(R.string.settings_recording_empty_subtitle)
-                        )
-                    }
-                }
-            } else {
-                items(uiState.recordingItems, key = { it.id }) { item ->
-                    RecordingItemCard(
-                        item = item,
-                        onStop = { viewModel.stopRecording(item.id) },
-                        onCancel = { viewModel.cancelRecording(item.id) },
-                        onDelete = { viewModel.deleteRecording(item.id) }
-                    )
-                }
-            }
-
-            // Decoder settings
-            item {
-                Spacer(Modifier.height(16.dp))
-                SettingsSectionHeader(
-                    title = stringResource(R.string.settings_playback),
-                    subtitle = stringResource(R.string.settings_playback_subtitle)
-                )
-                ClickableSettingsRow(
-                    label = stringResource(R.string.settings_live_tv_channel_mode),
-                    value = stringResource(uiState.liveTvChannelMode.labelResId()),
-                    onClick = { showLiveTvModeDialog = true }
-                )
-                ClickableSettingsRow(
-                    label = stringResource(R.string.settings_live_channel_numbering_mode),
-                    value = stringResource(uiState.liveChannelNumberingMode.labelResId()),
-                    onClick = { showLiveChannelNumberingDialog = true }
-                )
-                ClickableSettingsRow(
-                    label = stringResource(R.string.settings_vod_view_mode),
-                    value = stringResource(uiState.vodViewMode.labelResId()),
-                    onClick = { showVodViewModeDialog = true }
-                )
-                ClickableSettingsRow(
-                    label = stringResource(R.string.settings_default_playback_speed),
-                    value = playbackSpeedLabel,
-                    onClick = { showPlaybackSpeedDialog = true }
-                )
-                ClickableSettingsRow(
-                    label = stringResource(R.string.settings_preferred_audio_language),
-                    value = preferredAudioLanguageLabel,
-                    onClick = { showAudioLanguageDialog = true }
-                )
-                ClickableSettingsRow(
-                    label = stringResource(R.string.settings_subtitle_size),
-                    value = subtitleSizeLabel,
-                    onClick = { showSubtitleSizeDialog = true }
-                )
-                ClickableSettingsRow(
-                    label = stringResource(R.string.settings_subtitle_text_color),
-                    value = subtitleTextColorLabel,
-                    onClick = { showSubtitleTextColorDialog = true }
-                )
-                ClickableSettingsRow(
-                    label = stringResource(R.string.settings_subtitle_background),
-                    value = subtitleBackgroundLabel,
-                    onClick = { showSubtitleBackgroundDialog = true }
-                )
-                ClickableSettingsRow(
-                    label = stringResource(R.string.settings_wifi_quality_cap),
-                    value = wifiQualityLabel,
-                    onClick = { showWifiQualityDialog = true }
-                )
-                ClickableSettingsRow(
-                    label = stringResource(R.string.settings_ethernet_quality_cap),
-                    value = ethernetQualityLabel,
-                    onClick = { showEthernetQualityDialog = true }
-                )
-                InternetSpeedTestCard(
-                    valueLabel = lastSpeedTestLabel,
-                    summary = lastSpeedTestSummary,
-                    recommendationLabel = speedTestRecommendationLabel,
-                    isRunning = uiState.isRunningInternetSpeedTest,
-                    canApplyRecommendation = uiState.lastSpeedTest != null,
-                    onRunTest = viewModel::runInternetSpeedTest,
-                    onApplyWifi = viewModel::applySpeedTestRecommendationToWifi,
-                    onApplyEthernet = viewModel::applySpeedTestRecommendationToEthernet
-                )
-            }
-
-            // Privacy section
-            item {
-                Spacer(Modifier.height(16.dp))
-                SettingsSectionHeader(
-                    title = stringResource(R.string.settings_privacy),
-                    subtitle = stringResource(R.string.settings_privacy_subtitle)
-                )
-                
-                Surface(
-                    onClick = { viewModel.toggleIncognitoMode() },
-                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
-                    colors = ClickableSurfaceDefaults.colors(
-                        containerColor = SurfaceElevated,
-                        focusedContainerColor = Primary.copy(alpha = 0.2f)
-                    ),
-                    scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = stringResource(R.string.settings_incognito_mode),
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = OnBackground
+                    // ── 5: About ──────────────────────────────────────────────
+                    else {
+                        item {
+                            SettingsRow(label = stringResource(R.string.settings_app_version), value = "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
+                            SettingsRow(label = stringResource(R.string.settings_build), value = stringResource(R.string.settings_build_desc))
+                            SettingsRow(label = stringResource(R.string.settings_developed_by), value = stringResource(R.string.settings_developer_name))
+                            ClickableSettingsRow(
+                                label = stringResource(R.string.settings_github),
+                                value = stringResource(R.string.settings_github_url),
+                                onClick = { uriHandler.openUri(context.getString(R.string.settings_github_url)) }
                             )
-                            Text(
-                                text = stringResource(R.string.settings_incognito_mode_subtitle),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = OnBackground.copy(alpha = 0.6f)
+                            ClickableSettingsRow(
+                                label = stringResource(R.string.settings_donate),
+                                value = stringResource(R.string.settings_donate_url),
+                                onClick = { uriHandler.openUri(context.getString(R.string.settings_donate_url)) }
                             )
                         }
-                        Switch(
-                            checked = uiState.isIncognitoMode,
-                            onCheckedChange = { viewModel.toggleIncognitoMode() }
-                        )
-                    }
-                }
-                
-                Spacer(Modifier.height(8.dp))
-                
-                Surface(
-                    onClick = { showClearHistoryDialog = true },
-                    shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
-                    colors = ClickableSurfaceDefaults.colors(
-                        containerColor = SurfaceElevated,
-                        focusedContainerColor = Primary.copy(alpha = 0.2f)
-                    ),
-                    scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(16.dp),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text(
-                                text = stringResource(R.string.settings_clear_history),
-                                style = MaterialTheme.typography.bodyLarge,
-                                color = OnBackground
-                            )
-                            Text(
-                                text = stringResource(R.string.settings_clear_history_subtitle),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = OnBackground.copy(alpha = 0.6f)
-                            )
-                        }
-                        Text(
-                            text = stringResource(R.string.settings_clear_history_confirm),
-                            style = MaterialTheme.typography.labelLarge,
-                            color = Primary
-                        )
                     }
                 }
             }
-
-            // About section
-            item {
-                Spacer(Modifier.height(16.dp))
-                SettingsSectionHeader(
-                    title = stringResource(R.string.settings_about),
-                    subtitle = stringResource(R.string.settings_about_subtitle)
-                )
-                SettingsRow(label = stringResource(R.string.settings_app_version), value = "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})")
-                SettingsRow(label = stringResource(R.string.settings_build), value = stringResource(R.string.settings_build_desc))
-                SettingsRow(label = stringResource(R.string.settings_developed_by), value = stringResource(R.string.settings_developer_name))
-                ClickableSettingsRow(
-                    label = stringResource(R.string.settings_github),
-                    value = stringResource(R.string.settings_github_url),
-                    onClick = { uriHandler.openUri(context.getString(R.string.settings_github_url)) }
-                )
-                ClickableSettingsRow(
-                    label = stringResource(R.string.settings_donate),
-                    value = stringResource(R.string.settings_donate_url),
-                    onClick = { uriHandler.openUri(context.getString(R.string.settings_donate_url)) }
-                )
-            }
-        }
         }
 
     SnackbarHost(
@@ -986,7 +977,12 @@ fun SettingsScreen(
             androidx.compose.material3.AlertDialog(
                 onDismissRequest = { showClearHistoryDialog = false },
                 title = { Text(text = stringResource(R.string.settings_clear_history_dialog_title)) },
-                text = { Text(text = stringResource(R.string.settings_clear_history_dialog_body)) },
+                text = {
+                    Text(
+                        text = stringResource(R.string.settings_clear_history_dialog_body),
+                        color = OnSurface
+                    )
+                },
                 confirmButton = {
                     TextButton(
                         onClick = {
@@ -999,7 +995,7 @@ fun SettingsScreen(
                 },
                 dismissButton = {
                     TextButton(onClick = { showClearHistoryDialog = false }) {
-                        Text(text = stringResource(R.string.settings_cancel))
+                        Text(text = stringResource(R.string.settings_cancel), color = OnSurface)
                     }
                 },
                 containerColor = SurfaceElevated,
@@ -1008,6 +1004,184 @@ fun SettingsScreen(
             )
         }
     }
+
+    val pendingSyncProvider = pendingSyncProviderId?.let { providerId ->
+        uiState.providers.firstOrNull { it.id == providerId }
+    }
+    if (showProviderSyncDialog && pendingSyncProvider != null) {
+        ProviderSyncOptionsDialog(
+            provider = pendingSyncProvider,
+            onDismiss = {
+                showProviderSyncDialog = false
+                pendingSyncProviderId = null
+            },
+            onSelect = { selection ->
+                showProviderSyncDialog = false
+                if (selection == ProviderSyncSelection.ALL) {
+                    viewModel.syncProviderSection(pendingSyncProvider.id, selection)
+                    pendingSyncProviderId = null
+                } else if (selection == null) {
+                    showCustomProviderSyncDialog = true
+                } else {
+                    viewModel.syncProviderSection(pendingSyncProvider.id, selection)
+                    pendingSyncProviderId = null
+                }
+            }
+        )
+    }
+    if (showCustomProviderSyncDialog && pendingSyncProvider != null) {
+        ProviderCustomSyncDialog(
+            provider = pendingSyncProvider,
+            selected = customSyncSelections,
+            onToggle = { option ->
+                customSyncSelections = if (option in customSyncSelections) {
+                    customSyncSelections - option
+                } else {
+                    customSyncSelections + option
+                }
+            },
+            onDismiss = {
+                showCustomProviderSyncDialog = false
+                pendingSyncProviderId = null
+            },
+            onConfirm = {
+                showCustomProviderSyncDialog = false
+                viewModel.syncProviderCustom(pendingSyncProvider.id, customSyncSelections)
+                pendingSyncProviderId = null
+            }
+        )
+    }
+}
+
+private fun availableSyncSelections(provider: Provider): List<ProviderSyncSelection> = buildList {
+    add(ProviderSyncSelection.TV)
+    add(ProviderSyncSelection.MOVIES)
+    if (provider.type == ProviderType.XTREAM_CODES) {
+        add(ProviderSyncSelection.SERIES)
+    }
+    add(ProviderSyncSelection.EPG)
+}
+
+@Composable
+private fun ProviderSyncOptionsDialog(
+    provider: Provider,
+    onDismiss: () -> Unit,
+    onSelect: (ProviderSyncSelection?) -> Unit
+) {
+    PremiumDialog(
+        onDismissRequest = onDismiss,
+        title = stringResource(R.string.settings_sync_dialog_title, provider.name),
+        content = {
+        Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text(
+                text = stringResource(R.string.settings_sync_dialog_subtitle),
+                style = MaterialTheme.typography.bodyMedium,
+                color = OnSurface
+            )
+            SyncOptionButton(stringResource(R.string.settings_sync_option_all)) {
+                onSelect(ProviderSyncSelection.ALL)
+            }
+            if (provider.type == ProviderType.XTREAM_CODES) {
+                SyncOptionButton(stringResource(R.string.settings_sync_option_fast)) {
+                    onSelect(ProviderSyncSelection.FAST)
+                }
+            }
+            availableSyncSelections(provider).forEach { option ->
+                SyncOptionButton(text = syncSelectionLabel(option)) {
+                    onSelect(option)
+                }
+            }
+            OutlinedButton(
+                onClick = { onSelect(null) },
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(stringResource(R.string.settings_sync_option_custom))
+            }
+        }
+    }
+    )
+}
+
+@Composable
+private fun ProviderCustomSyncDialog(
+    provider: Provider,
+    selected: Set<ProviderSyncSelection>,
+    onToggle: (ProviderSyncSelection) -> Unit,
+    onDismiss: () -> Unit,
+    onConfirm: () -> Unit
+) {
+    PremiumDialog(
+        onDismissRequest = onDismiss,
+        title = stringResource(R.string.settings_sync_custom_title, provider.name),
+        content = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(
+                    text = stringResource(R.string.settings_sync_custom_subtitle),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = OnSurface
+                )
+                availableSyncSelections(provider).forEach { option ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onToggle(option) }
+                            .padding(vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Checkbox(
+                            checked = option in selected,
+                            onCheckedChange = { onToggle(option) }
+                        )
+                        Text(
+                            text = syncSelectionLabel(option),
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = OnBackground
+                        )
+                    }
+                }
+            }
+        },
+        footer = {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp, Alignment.End)
+            ) {
+                PremiumDialogFooterButton(
+                    label = stringResource(R.string.settings_cancel),
+                    onClick = onDismiss
+                )
+                PremiumDialogFooterButton(
+                    label = stringResource(R.string.settings_sync_btn),
+                    onClick = onConfirm,
+                    enabled = selected.isNotEmpty()
+                )
+            }
+        }
+    )
+}
+
+@Composable
+private fun SyncOptionButton(
+    text: String,
+    onClick: () -> Unit
+) {
+    Button(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Text(text)
+    }
+}
+
+@Composable
+private fun syncSelectionLabel(selection: ProviderSyncSelection): String = when (selection) {
+    ProviderSyncSelection.ALL -> stringResource(R.string.settings_sync_option_all)
+    ProviderSyncSelection.FAST -> stringResource(R.string.settings_sync_option_fast)
+    ProviderSyncSelection.TV -> stringResource(R.string.settings_sync_option_tv)
+    ProviderSyncSelection.MOVIES -> stringResource(R.string.settings_sync_option_movies)
+    ProviderSyncSelection.SERIES -> stringResource(R.string.settings_sync_option_series)
+    ProviderSyncSelection.EPG -> stringResource(R.string.settings_sync_option_epg)
 }
 
 private enum class ParentalAction {
@@ -1540,8 +1714,15 @@ private fun ProviderSelectorTab(
     isActive: Boolean,
     onClick: () -> Unit
 ) {
+    val focusRequester = remember { FocusRequester() }
     Surface(
         onClick = onClick,
+        modifier = Modifier
+            .focusRequester(focusRequester)
+            .mouseClickable(
+                focusRequester = focusRequester,
+                onClick = onClick
+            ),
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(999.dp)),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = if (isSelected) Primary.copy(alpha = 0.18f) else SurfaceElevated,
@@ -2009,6 +2190,7 @@ private fun LiveChannelNumberingModeDialog(
 
 @Composable
 private fun SettingsRow(label: String, value: String) {
+    val focusRequester = remember { FocusRequester() }
     Surface(
         onClick = {},
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
@@ -2017,7 +2199,13 @@ private fun SettingsRow(label: String, value: String) {
             focusedContainerColor = Primary.copy(alpha = 0.15f)
         ),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier
+            .fillMaxWidth()
+            .focusRequester(focusRequester)
+            .mouseClickable(
+                focusRequester = focusRequester,
+                onClick = {}
+            )
     ) {
         Row(
             modifier = Modifier
@@ -2034,6 +2222,7 @@ private fun SettingsRow(label: String, value: String) {
 
 @Composable
 private fun ClickableSettingsRow(label: String, value: String, onClick: () -> Unit) {
+    val focusRequester = remember { FocusRequester() }
     Surface(
         onClick = onClick,
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
@@ -2042,7 +2231,13 @@ private fun ClickableSettingsRow(label: String, value: String, onClick: () -> Un
             focusedContainerColor = Primary.copy(alpha = 0.15f)
         ),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
-        modifier = Modifier.fillMaxWidth()
+        modifier = Modifier
+            .fillMaxWidth()
+            .focusRequester(focusRequester)
+            .mouseClickable(
+                focusRequester = focusRequester,
+                onClick = onClick
+            )
     ) {
         Row(
             modifier = Modifier
@@ -2068,6 +2263,7 @@ private fun InternetSpeedTestCard(
     onApplyWifi: () -> Unit,
     onApplyEthernet: () -> Unit
 ) {
+    val focusRequester = remember { FocusRequester() }
     Surface(
         onClick = onRunTest,
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(12.dp)),
@@ -2079,6 +2275,11 @@ private fun InternetSpeedTestCard(
         modifier = Modifier
             .fillMaxWidth()
             .padding(top = 8.dp)
+            .focusRequester(focusRequester)
+            .mouseClickable(
+                focusRequester = focusRequester,
+                onClick = onRunTest
+            )
     ) {
         Column(
             modifier = Modifier.padding(16.dp),
@@ -2497,6 +2698,67 @@ private fun RecordingItemCard(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun SettingsNavItem(
+    label: String,
+    badgeChar: String,
+    accentColor: Color,
+    isSelected: Boolean,
+    onClick: () -> Unit
+) {
+    val focusRequester = remember { FocusRequester() }
+    Surface(
+        onClick = onClick,
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(0.dp)),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = if (isSelected) Primary.copy(alpha = 0.11f) else Color.Transparent,
+            focusedContainerColor = Primary.copy(alpha = 0.22f)
+        ),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
+        modifier = Modifier
+            .fillMaxWidth()
+            .focusRequester(focusRequester)
+            .mouseClickable(focusRequester = focusRequester, onClick = onClick)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 10.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Box(
+                Modifier
+                    .width(3.dp)
+                    .height(22.dp)
+                    .background(
+                        color = if (isSelected) Primary else Color.Transparent,
+                        shape = RoundedCornerShape(2.dp)
+                    )
+            )
+            Box(
+                Modifier
+                    .size(28.dp)
+                    .background(accentColor.copy(alpha = 0.18f), RoundedCornerShape(7.dp)),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = badgeChar,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = accentColor,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+            Text(
+                text = label,
+                style = MaterialTheme.typography.labelLarge,
+                color = if (isSelected) Primary else OnBackground,
+                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal
+            )
         }
     }
 }

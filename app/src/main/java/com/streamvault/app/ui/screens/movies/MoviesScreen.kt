@@ -3,8 +3,8 @@ package com.streamvault.app.ui.screens.movies
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.items as gridItems
@@ -425,13 +425,13 @@ private fun MoviesVodContent(
     }
 
     if (uiState.selectedCategory == null) {
-        androidx.compose.foundation.lazy.LazyColumn(
+        LazyColumn(
             modifier = Modifier.fillMaxSize(),
             contentPadding = PaddingValues(bottom = 28.dp)
         ) {
+            item(key = "hero") {
             if (heroMovie != null) {
-                item("hero") {
-                    VodHeroStrip(
+                VodHeroStrip(
                         title = heroMovie.name,
                         subtitle = heroMovie.plot?.takeIf { it.isNotBlank() }
                             ?: heroMovie.year
@@ -443,11 +443,10 @@ private fun MoviesVodContent(
                         },
                         modifier = Modifier.padding(top = 8.dp, bottom = 6.dp)
                     )
-                }
             }
-
-            item("actions") {
-                VodActionChipRow(
+            }
+            item(key = "actions") {
+            VodActionChipRow(
                     actions = buildList {
                         add(
                             VodActionChip(
@@ -509,10 +508,9 @@ private fun MoviesVodContent(
                     modifier = Modifier.padding(top = 2.dp, bottom = 6.dp)
                 )
             }
-
             if (continueWatching.isNotEmpty()) {
-                item("continue_watching") {
-                    ContinueWatchingRow(
+            item(key = "continue_watching") {
+                ContinueWatchingRow(
                         items = continueWatching,
                         onItemClick = { history ->
                             onMovieClick(
@@ -526,17 +524,16 @@ private fun MoviesVodContent(
                             )
                         }
                     )
-                }
             }
-
+            }
             if (favoriteMovies.isNotEmpty()) {
-                item("favorites_row") {
-                    CategoryRow(
-                        title = stringResource(R.string.favorites_title),
-                        items = favoriteMovies,
-                        onSeeAll = { onSelectCategory(uiState.favoriteCategoryName) },
-                        keySelector = { it.id }
-                    ) { movie ->
+            item(key = "favorites_row") {
+                CategoryRow(
+                    title = stringResource(R.string.favorites_title),
+                    items = favoriteMovies,
+                    onSeeAll = { onSelectCategory(uiState.favoriteCategoryName) },
+                    keySelector = { it.id }
+                ) { movie ->
                         val isLocked = isMovieLocked(movie)
                         MovieCard(
                             movie = movie,
@@ -547,18 +544,17 @@ private fun MoviesVodContent(
                             onLongClick = { onShowDialog(movie) },
                             modifier = Modifier.width(favoriteCardWidth)
                         )
-                    }
                 }
             }
-
+            }
             if (freshMovies.isNotEmpty()) {
-                item("fresh_row") {
-                    CategoryRow(
-                        title = stringResource(R.string.library_lens_fresh_movies),
-                        items = freshMovies,
-                        onSeeAll = null,
-                        keySelector = { it.id }
-                    ) { movie ->
+            item(key = "fresh_row") {
+                CategoryRow(
+                    title = stringResource(R.string.library_lens_fresh_movies),
+                    items = freshMovies,
+                    onSeeAll = null,
+                    keySelector = { it.id }
+                ) { movie ->
                         val isLocked = isMovieLocked(movie)
                         MovieCard(
                             movie = movie,
@@ -566,18 +562,17 @@ private fun MoviesVodContent(
                             onClick = { if (isLocked) onProtectedMovieClick(movie) else onMovieClick(movie) },
                             onLongClick = { onShowDialog(movie) }
                         )
-                    }
                 }
             }
-
+            }
             if (topRatedMovies.isNotEmpty()) {
-                item("top_row") {
-                    CategoryRow(
-                        title = stringResource(R.string.library_lens_top_rated),
-                        items = topRatedMovies,
-                        onSeeAll = null,
-                        keySelector = { it.id }
-                    ) { movie ->
+            item(key = "top_rated_row") {
+                CategoryRow(
+                    title = stringResource(R.string.library_lens_top_rated),
+                    items = topRatedMovies,
+                    onSeeAll = null,
+                    keySelector = { it.id }
+                ) { movie ->
                         val isLocked = isMovieLocked(movie)
                         MovieCard(
                             movie = movie,
@@ -585,16 +580,16 @@ private fun MoviesVodContent(
                             onClick = { if (isLocked) onProtectedMovieClick(movie) else onMovieClick(movie) },
                             onLongClick = { onShowDialog(movie) }
                         )
-                    }
                 }
             }
-
-            items(
-                items = uiState.moviesByCategory.entries.filter { (name, items) ->
+            }
+            val catEntries = uiState.moviesByCategory.entries
+                .filter { (name, items) ->
                     name != uiState.favoriteCategoryName && name in visibleCategoryNames && items.isNotEmpty()
-                }.take(8),
-                key = { it.key }
-            ) { (categoryName, movies) ->
+                }.take(8).toList()
+            items(catEntries, key = { it.key }) { entry ->
+                val categoryName = entry.key
+                val movies = entry.value
                 val matchedCategory = categoryByName[categoryName]
                 val lockedCategory = matchedCategory?.let(isCategoryLocked) == true
                 CategoryRow(
@@ -692,14 +687,16 @@ private fun MoviesVodContent(
                         add(
                             VodActionChip(
                                 key = "search_toggle",
-                                label = if (showSearchBar) "Hide Search" else "Search",
+                                label = stringResource(
+                                    if (showSearchBar) R.string.library_action_hide_search else R.string.search_title
+                                ),
                                 onClick = { showSearchBar = !showSearchBar }
                             )
                         )
                         add(
                             VodActionChip(
                                 key = "browse_options",
-                                label = "Filters & Sort",
+                                label = stringResource(R.string.library_action_filters_sort),
                                 onClick = { showBrowseOptions = true }
                             )
                         )
@@ -1004,14 +1001,16 @@ private fun MoviesVodClassicContent(
                     add(
                         VodActionChip(
                             key = "search_toggle",
-                            label = if (showSearchBar) "Hide Search" else "Search",
+                            label = stringResource(
+                                if (showSearchBar) R.string.library_action_hide_search else R.string.search_title
+                            ),
                             onClick = { showSearchBar = !showSearchBar }
                         )
                     )
                     add(
                         VodActionChip(
                             key = "browse_options",
-                            label = "Filters & Sort",
+                            label = stringResource(R.string.library_action_filters_sort),
                             onClick = { showBrowseOptions = true }
                         )
                     )

@@ -73,6 +73,7 @@ class ProviderRepositoryImpl @Inject constructor(
         username: String,
         password: String,
         name: String,
+        xtreamFastSyncEnabled: Boolean,
         onProgress: ((String) -> Unit)?,
         id: Long?
     ): Result<Provider> {
@@ -110,6 +111,7 @@ class ProviderRepositoryImpl @Inject constructor(
                         serverUrl = normalizedServerUrl,
                         username = normalizedUsername,
                         password = effectivePassword,
+                        xtreamFastSyncEnabled = xtreamFastSyncEnabled,
                         isActive = true,
                         lastSyncedAt = 0,
                         createdAt = existingProvider.createdAt
@@ -117,7 +119,10 @@ class ProviderRepositoryImpl @Inject constructor(
                     providerDao.update(updated.toSecureEntity())
                     updated.copy(password = "")
                 } else {
-                    val newData = authResult.data.copy(name = normalizedName.ifBlank { authResult.data.name })
+                    val newData = authResult.data.copy(
+                        name = normalizedName.ifBlank { authResult.data.name },
+                        xtreamFastSyncEnabled = xtreamFastSyncEnabled
+                    )
                     val newId = providerDao.insert(newData.toSecureEntity())
                     newData.copy(id = newId).copy(password = "")
                 }
@@ -227,9 +232,17 @@ class ProviderRepositoryImpl @Inject constructor(
     override suspend fun refreshProviderData(
         providerId: Long,
         force: Boolean,
+        movieFastSyncOverride: Boolean?,
         onProgress: ((String) -> Unit)?
     ): Result<Unit> {
-        return when (val syncResult = syncManager.sync(providerId, force = force, onProgress = onProgress)) {
+        return when (
+            val syncResult = syncManager.sync(
+                providerId,
+                force = force,
+                movieFastSyncOverride = movieFastSyncOverride,
+                onProgress = onProgress
+            )
+        ) {
             is Result.Success -> {
                 val finalStatus = if (syncManager.currentSyncState(providerId) is SyncState.Partial) {
                     ProviderStatus.PARTIAL

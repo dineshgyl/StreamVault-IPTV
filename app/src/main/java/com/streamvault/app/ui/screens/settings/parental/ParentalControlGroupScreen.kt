@@ -128,7 +128,7 @@ fun ParentalControlGroupScreen(
                     value = uiState.searchQuery,
                     onValueChange = viewModel::onSearchQueryChange,
                     placeholder = stringResource(R.string.settings_provider_category_controls_search),
-                    onSearch = { focusManager.clearFocus() },
+                    onSearch = {},
                     modifier = Modifier.width(searchWidth)
                 )
             }

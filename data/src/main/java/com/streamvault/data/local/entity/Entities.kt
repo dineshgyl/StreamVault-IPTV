@@ -29,6 +29,7 @@ data class ProviderEntity(
     @ColumnInfo(name = "expiration_date") val expirationDate: Long? = null,
     @ColumnInfo(name = "api_version") val apiVersion: String? = null,
     @ColumnInfo(name = "allowed_output_formats_json") val allowedOutputFormatsJson: String = "[]",
+    @ColumnInfo(name = "xtream_fast_sync_enabled") val xtreamFastSyncEnabled: Boolean = false,
     val status: ProviderStatus = ProviderStatus.UNKNOWN,
     @ColumnInfo(name = "last_synced_at") val lastSyncedAt: Long = 0,
     @ColumnInfo(name = "created_at") val createdAt: Long = System.currentTimeMillis()
@@ -660,4 +661,24 @@ data class SyncMetadataEntity(
     @ColumnInfo(name = "movie_healthy_sync_streak") val movieHealthySyncStreak: Int = 0,
     @ColumnInfo(name = "series_sequential_failures_remembered") val seriesSequentialFailuresRemembered: Boolean = false,
     @ColumnInfo(name = "series_healthy_sync_streak") val seriesHealthySyncStreak: Int = 0
+)
+
+@Entity(
+    tableName = "movie_category_hydration",
+    primaryKeys = ["provider_id", "category_id"],
+    foreignKeys = [ForeignKey(
+        entity = ProviderEntity::class,
+        parentColumns = ["id"],
+        childColumns = ["provider_id"],
+        onDelete = ForeignKey.CASCADE
+    )],
+    indices = [Index(value = ["provider_id"])]
+)
+data class MovieCategoryHydrationEntity(
+    @ColumnInfo(name = "provider_id") val providerId: Long,
+    @ColumnInfo(name = "category_id") val categoryId: Long,
+    @ColumnInfo(name = "last_hydrated_at") val lastHydratedAt: Long = 0L,
+    @ColumnInfo(name = "item_count") val itemCount: Int = 0,
+    @ColumnInfo(name = "last_status") val lastStatus: String = "IDLE",
+    @ColumnInfo(name = "last_error") val lastError: String? = null
 )

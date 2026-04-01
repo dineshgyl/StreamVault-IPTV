@@ -8,6 +8,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.streamvault.app.di.AuxiliaryPlayerEngine
 import com.streamvault.data.preferences.PreferencesRepository
+import com.streamvault.domain.manager.ParentalControlManager
+import com.streamvault.domain.model.Category
 import com.streamvault.domain.model.Channel
 import com.streamvault.domain.model.Result
 import com.streamvault.domain.model.ProviderType
@@ -15,6 +17,8 @@ import com.streamvault.domain.repository.ChannelRepository
 import com.streamvault.domain.repository.FavoriteRepository
 import com.streamvault.domain.repository.PlaybackHistoryRepository
 import com.streamvault.domain.repository.ProviderRepository
+import com.streamvault.domain.usecase.UnlockParentalCategory
+import com.streamvault.domain.usecase.UnlockParentalCategoryCommand
 import com.streamvault.player.PlayerEngine
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
@@ -38,7 +42,9 @@ class MultiViewViewModel @Inject constructor(
     private val channelRepository: ChannelRepository,
     private val favoriteRepository: FavoriteRepository,
     private val playbackHistoryRepository: PlaybackHistoryRepository,
-    private val providerRepository: ProviderRepository
+    private val providerRepository: ProviderRepository,
+    private val parentalControlManager: ParentalControlManager,
+    private val unlockParentalCategory: UnlockParentalCategory
 ) : ViewModel() {
 
     private val _uiState = MutableStateFlow(MultiViewUiState())
@@ -61,6 +67,7 @@ class MultiViewViewModel @Inject constructor(
     private val slotErrorJobs = mutableMapOf<Int, kotlinx.coroutines.Job>()
     private var slotInitVersion: Long = 0L
     private var playbackSessionActive: Boolean = false
+    private var currentProviderId: Long? = null
 
     /** Flow of the current 4 slot channels from the manager */
     val slotsFlow = multiViewManager.slots
@@ -126,8 +133,22 @@ class MultiViewViewModel @Inject constructor(
             }
         }
 
+        viewModelScope.launch {
+            preferencesRepository.parentalControlLevel.collect { level ->
+                _uiState.value = _uiState.value.copy(parentalControlLevel = level)
+            }
+        }
+
         registerThermalListener()
         observeReplacementCandidates()
+    }
+
+    suspend fun verifyPin(pin: String): Boolean =
+        preferencesRepository.verifyParentalPin(pin)
+
+    fun unlockPickerCategory(categoryId: Long) {
+        val providerId = currentProviderId ?: return
+        parentalControlManager.unlockCategory(providerId, categoryId)
     }
 
     fun releasePlayersForBackground() {
@@ -404,6 +425,70 @@ class MultiViewViewModel @Inject constructor(
         )
     }
 
+    fun openReplacementPicker() {
+        val providerId = currentProviderId ?: return
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(
+                pickerState = MultiViewPickerState(isLoading = true)
+            )
+            val categories = channelRepository.getCategories(providerId).first()
+            _uiState.value = _uiState.value.copy(
+                pickerState = MultiViewPickerState(categories = categories)
+            )
+        }
+    }
+
+    fun selectPickerCategory(category: Category) {
+        val providerId = currentProviderId ?: return
+        viewModelScope.launch {
+            _uiState.value = _uiState.value.copy(
+                pickerState = _uiState.value.pickerState.copy(
+                    selectedCategory = category,
+                    isLoading = true,
+                    searchQuery = "",
+                    channels = emptyList(),
+                    filteredChannels = emptyList()
+                )
+            )
+            val channels = if (category.id == com.streamvault.domain.repository.ChannelRepository.ALL_CHANNELS_ID) {
+                channelRepository.getChannels(providerId).first()
+            } else {
+                channelRepository.getChannelsByCategory(providerId, category.id).first()
+            }
+            _uiState.value = _uiState.value.copy(
+                pickerState = _uiState.value.pickerState.copy(
+                    channels = channels,
+                    filteredChannels = channels,
+                    isLoading = false
+                )
+            )
+        }
+    }
+
+    fun updatePickerSearch(query: String) {
+        val state = _uiState.value.pickerState
+        val filtered = if (query.isBlank()) state.channels
+            else state.channels.filter { it.name.contains(query, ignoreCase = true) }
+        _uiState.value = _uiState.value.copy(
+            pickerState = state.copy(searchQuery = query, filteredChannels = filtered)
+        )
+    }
+
+    fun backToPickerCategories() {
+        _uiState.value = _uiState.value.copy(
+            pickerState = _uiState.value.pickerState.copy(
+                selectedCategory = null,
+                channels = emptyList(),
+                filteredChannels = emptyList(),
+                searchQuery = ""
+            )
+        )
+    }
+
+    fun resetPicker() {
+        _uiState.value = _uiState.value.copy(pickerState = MultiViewPickerState())
+    }
+
     private fun observeReplacementCandidates() {
         viewModelScope.launch {
             preferencesRepository.lastActiveProviderId.collect { providerId ->
@@ -411,6 +496,7 @@ class MultiViewViewModel @Inject constructor(
                     _uiState.value = _uiState.value.copy(replacementCandidates = emptyList())
                     return@collect
                 }
+                currentProviderId = providerId
                 combine(
                     favoriteRepository.getFavorites(com.streamvault.domain.model.ContentType.LIVE),
                     playbackHistoryRepository.getRecentlyWatchedByProvider(providerId, limit = 12)
@@ -649,17 +735,20 @@ class MultiViewViewModel @Inject constructor(
     }
 
     private fun shouldThrottleDown(): Boolean {
-        val coolingDown = System.currentTimeMillis() - lastPolicyAdjustmentAt < 5_000
+        val coolingDown = System.currentTimeMillis() - lastPolicyAdjustmentAt < 8_000
         if (coolingDown) return false
-        return sustainedStressSamples >= 2 ||
-            thermalStatus == MultiViewThermalStatus.SEVERE ||
-            thermalStatus == MultiViewThermalStatus.CRITICAL
+        if (thermalStatus == MultiViewThermalStatus.SEVERE || thermalStatus == MultiViewThermalStatus.CRITICAL) {
+            return true
+        }
+        val activeSlots = _uiState.value.slots.count { !it.isEmpty && it.performanceBlockedReason == null }
+        val loadScore = _uiState.value.telemetry.sustainedLoadScore
+        return activeSlots > 2 && sustainedStressSamples >= 3 && loadScore >= 8
     }
 
     private fun shouldRecover(policy: MultiViewPerformancePolicyUiModel): Boolean {
-        val coolingDown = System.currentTimeMillis() - lastPolicyAdjustmentAt < 8_000
+        val coolingDown = System.currentTimeMillis() - lastPolicyAdjustmentAt < 6_000
         if (coolingDown) return false
-        return stableSamples >= 4 &&
+        return stableSamples >= 3 &&
             runtimeActiveSlotLimit < policy.maxActiveSlots
     }
 
