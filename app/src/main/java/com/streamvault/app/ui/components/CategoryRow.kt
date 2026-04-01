@@ -6,9 +6,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRestorer
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.res.stringResource
 import androidx.tv.material3.Border
@@ -23,6 +26,7 @@ import com.streamvault.app.ui.theme.OnSurface
 import com.streamvault.app.ui.theme.Primary
 import com.streamvault.app.ui.theme.SurfaceElevated
 import com.streamvault.app.ui.theme.SurfaceHighlight
+import com.streamvault.app.ui.interaction.mouseClickable
 
 // ── Netflix-style horizontal category row ─────────────────────────
 
@@ -39,8 +43,12 @@ fun <T : Any> CategoryRow(
 ) {
     val resolvedContentTypeSelector: (T) -> Any? = contentTypeSelector ?: { null }
 
-    Column(modifier = modifier.fillMaxWidth()) {
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+    ) {
         if (onSeeAll != null) {
+            val seeAllFocusRequester = remember { FocusRequester() }
             Column(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -50,6 +58,12 @@ fun <T : Any> CategoryRow(
                 AppSectionHeader(title = title)
                 Surface(
                     onClick = onSeeAll,
+                    modifier = Modifier
+                        .focusRequester(seeAllFocusRequester)
+                        .mouseClickable(
+                            focusRequester = seeAllFocusRequester,
+                            onClick = onSeeAll
+                        ),
                     colors = ClickableSurfaceDefaults.colors(
                         containerColor = SurfaceElevated,
                         focusedContainerColor = SurfaceHighlight,
@@ -82,7 +96,7 @@ fun <T : Any> CategoryRow(
 
         LazyRow(
             modifier = Modifier.focusRestorer(),
-            contentPadding = PaddingValues(horizontal = 20.dp),
+            contentPadding = PaddingValues(horizontal = 20.dp, vertical = 10.dp),
             horizontalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             items(

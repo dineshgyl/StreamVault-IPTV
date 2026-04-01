@@ -19,6 +19,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.stringResource
@@ -34,6 +36,7 @@ import com.streamvault.app.ui.theme.OnBackground
 import com.streamvault.app.ui.theme.OnSurfaceDim
 import com.streamvault.app.ui.theme.Primary
 import com.streamvault.app.ui.theme.SurfaceElevated
+import com.streamvault.app.ui.interaction.mouseClickable
 import com.streamvault.domain.model.Provider
 
 @Composable
@@ -45,6 +48,7 @@ fun PlaylistSwitcher(
 ) {
     var showProviderList by remember { mutableStateOf(false) }
     var isFocused by remember { mutableStateOf(false) }
+    val toggleFocusRequester = remember { FocusRequester() }
     val screenWidth = LocalConfiguration.current.screenWidthDp.dp
     val dropdownWidth = if (screenWidth < 700.dp) 180.dp else 250.dp
 
@@ -53,7 +57,13 @@ fun PlaylistSwitcher(
     Box(modifier = modifier) {
         Surface(
             onClick = { showProviderList = !showProviderList },
-            modifier = Modifier.onFocusChanged { isFocused = it.isFocused },
+            modifier = Modifier
+                .focusRequester(toggleFocusRequester)
+                .mouseClickable(
+                    focusRequester = toggleFocusRequester,
+                    onClick = { showProviderList = !showProviderList }
+                )
+                .onFocusChanged { isFocused = it.isFocused },
             shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
             colors = ClickableSurfaceDefaults.colors(
                 containerColor = if (isFocused) Primary.copy(alpha = 0.2f) else SurfaceElevated,
@@ -115,11 +125,17 @@ private fun ProviderItem(
     onClick: () -> Unit
 ) {
     var isFocused by remember { mutableStateOf(false) }
+    val focusRequester = remember { FocusRequester() }
 
     Surface(
         onClick = onClick,
         modifier = Modifier
             .fillMaxWidth()
+            .focusRequester(focusRequester)
+            .mouseClickable(
+                focusRequester = focusRequester,
+                onClick = onClick
+            )
             .onFocusChanged { isFocused = it.isFocused },
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(4.dp)),
         colors = ClickableSurfaceDefaults.colors(

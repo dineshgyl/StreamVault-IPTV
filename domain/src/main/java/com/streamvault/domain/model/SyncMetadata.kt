@@ -2,6 +2,7 @@ package com.streamvault.domain.model
 
 enum class VodSyncMode {
     UNKNOWN,
+    FAST_SYNC,
     FULL,
     CATEGORY_BULK,
     PAGED,

@@ -3,9 +3,11 @@ package com.streamvault.data.repository
 import com.google.common.truth.Truth.assertThat
 import com.streamvault.data.local.dao.CategoryDao
 import com.streamvault.data.local.dao.FavoriteDao
+import com.streamvault.data.local.dao.MovieCategoryHydrationDao
 import com.streamvault.data.local.dao.MovieDao
 import com.streamvault.data.local.dao.PlaybackHistoryDao
 import com.streamvault.data.local.dao.ProviderDao
+import com.streamvault.data.local.DatabaseTransactionRunner
 import com.streamvault.data.local.entity.FavoriteEntity
 import com.streamvault.data.local.entity.MovieBrowseEntity
 import com.streamvault.data.local.entity.MovieEntity
@@ -19,6 +21,7 @@ import com.streamvault.data.remote.xtream.XtreamStreamUrlResolver
 import com.streamvault.domain.model.ContentType
 import com.streamvault.domain.model.ProviderStatus
 import com.streamvault.domain.model.ProviderType
+import com.streamvault.domain.repository.SyncMetadataRepository
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
@@ -39,6 +42,11 @@ class MovieRepositoryImplTest {
     private val favoriteDao: FavoriteDao = mock()
     private val playbackHistoryDao: PlaybackHistoryDao = mock()
     private val xtreamStreamUrlResolver: XtreamStreamUrlResolver = mock()
+    private val movieCategoryHydrationDao: MovieCategoryHydrationDao = mock()
+    private val syncMetadataRepository: SyncMetadataRepository = mock()
+    private val transactionRunner = object : DatabaseTransactionRunner {
+        override suspend fun <T> inTransaction(block: suspend () -> T): T = block()
+    }
 
     @Test
     fun `getRecommendations prioritizes movies similar to recent history`() = runTest {
@@ -141,6 +149,7 @@ class MovieRepositoryImplTest {
         whenever(preferencesRepository.parentalControlLevel).thenReturn(flowOf(0))
         whenever(movieDao.getCountByCategory(7L, 42L)).thenReturn(flowOf(0))
         whenever(movieDao.getByCategory(7L, 42L)).thenReturn(flowOf(emptyList()))
+        whenever(movieCategoryHydrationDao.get(7L, 42L)).thenReturn(null)
         whenever(providerDao.getById(7L)).thenReturn(
             ProviderEntity(
                 id = 7L,
@@ -182,7 +191,10 @@ class MovieRepositoryImplTest {
         preferencesRepository = preferencesRepository,
         favoriteDao = favoriteDao,
         playbackHistoryDao = playbackHistoryDao,
-        xtreamStreamUrlResolver = xtreamStreamUrlResolver
+        xtreamStreamUrlResolver = xtreamStreamUrlResolver,
+        movieCategoryHydrationDao = movieCategoryHydrationDao,
+        syncMetadataRepository = syncMetadataRepository,
+        transactionRunner = transactionRunner
     )
 
     private fun movieEntity(

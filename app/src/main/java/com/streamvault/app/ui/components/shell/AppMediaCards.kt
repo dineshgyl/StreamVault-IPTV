@@ -33,6 +33,8 @@ import kotlinx.coroutines.flow.stateIn
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -58,6 +60,7 @@ import com.streamvault.app.ui.components.rememberCrossfadeImageModel
 import com.streamvault.app.ui.design.AppColors
 import com.streamvault.app.ui.design.AppMotion
 import com.streamvault.app.ui.design.FocusSpec
+import com.streamvault.app.ui.interaction.mouseClickable
 import com.streamvault.app.ui.interaction.rememberTvInteractionSounds
 import com.streamvault.domain.model.Channel
 import com.streamvault.domain.model.Episode
@@ -202,6 +205,7 @@ fun LiveChannelRowSurface(
 ) {
     var isFocused by remember { mutableStateOf(false) }
     val sounds = rememberTvInteractionSounds()
+    val focusRequester = remember { FocusRequester() }
     val favoriteLabel = stringResource(R.string.a11y_favorite)
     val catchUpLabel = stringResource(R.string.a11y_catch_up_available)
     val lockedLabel = stringResource(R.string.a11y_locked)
@@ -237,7 +241,15 @@ fun LiveChannelRowSurface(
         },
         onLongClick = onLongClick,
         modifier = modifier
+            .focusRequester(focusRequester)
             .fillMaxWidth()
+            .mouseClickable(
+                focusRequester = focusRequester,
+                onClick = {
+                    sounds.playSelect()
+                    onClick()
+                }
+            )
             .graphicsLayer {
                 scaleX = scale
                 scaleY = scale
@@ -254,6 +266,7 @@ fun LiveChannelRowSurface(
                 }
                 isFocused = it.isFocused
             },
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(16.dp)),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = AppColors.SurfaceElevated,
@@ -394,24 +407,27 @@ private fun PosterCard(
     modifier: Modifier = Modifier
 ) {
     val posterShape = RoundedCornerShape(12.dp)
+    var imageLoaded by remember(imageUrl) { mutableStateOf(false) }
+    var imageFailed by remember(imageUrl) { mutableStateOf(false) }
+    val showFallback = imageUrl.isNullOrBlank() || imageFailed || !imageLoaded
 
     Box(
         modifier = modifier
             .clip(posterShape)
-            .background(AppColors.SurfaceElevated)
+            .background(AppColors.SurfaceEmphasis)
     ) {
-        // Fallback always visible; covered by AsyncImage on successful load
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(AppColors.SurfaceEmphasis),
-            contentAlignment = Alignment.Center
-        ) {
-            Text(
-                text = title.take(1).uppercase(),
-                style = MaterialTheme.typography.displaySmall,
-                color = AppColors.TextSecondary
-            )
+        // Fallback letter: only shown while no URL, still loading, or load failed
+        if (showFallback) {
+            Box(
+                modifier = Modifier.fillMaxSize(),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = title.take(1).uppercase(),
+                    style = MaterialTheme.typography.displaySmall,
+                    color = AppColors.TextSecondary
+                )
+            }
         }
         if (!imageUrl.isNullOrBlank()) {
             AsyncImage(
@@ -420,7 +436,9 @@ private fun PosterCard(
                 modifier = Modifier
                     .fillMaxSize()
                     .clip(posterShape),
-                contentScale = ContentScale.Crop
+                contentScale = ContentScale.Fit,
+                onSuccess = { imageLoaded = true },
+                onError = { imageFailed = true }
             )
         }
 

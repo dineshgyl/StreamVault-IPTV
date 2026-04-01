@@ -25,6 +25,7 @@ import androidx.compose.foundation.focusGroup
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.animation.*
+import androidx.compose.animation.core.tween
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.text.font.FontWeight
 import java.text.SimpleDateFormat
@@ -183,7 +184,6 @@ fun PlayerScreen(
     val playButtonFocusRequester = remember { FocusRequester() }
     val quickActionsFocusRequester = remember { FocusRequester() }
     val channelInfoFocusRequester = remember { FocusRequester() } // NEW
-    var lastFocusedChannelListItemId by rememberSaveable { mutableStateOf<Long?>(null) }
     var lastFocusedEpgProgramToken by rememberSaveable { mutableStateOf<Long?>(null) }
     val layoutDirection = LocalLayoutDirection.current
     val isRtl = layoutDirection == LayoutDirection.Rtl
@@ -813,8 +813,6 @@ fun PlayerScreen(
                     recentChannels = recentChannels,
                     currentChannelId = currentChannel?.id ?: internalChannelId,
                     overlayFocusRequester = channelListFocusRequester,
-                    preferredFocusedChannelId = lastFocusedChannelListItemId,
-                    onFocusedChannelChange = { channelId -> lastFocusedChannelListItemId = channelId },
                     lastVisitedCategoryName = lastVisitedCategory?.name,
                     onOpenLastGroup = { viewModel.openLastVisitedCategory() },
                     onSelectChannel = { channelId -> viewModel.zapToChannel(channelId) },

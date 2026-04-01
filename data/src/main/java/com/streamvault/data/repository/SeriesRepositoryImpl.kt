@@ -11,6 +11,7 @@ import com.streamvault.domain.model.*
 import com.streamvault.domain.model.Result.Success
 import com.streamvault.domain.repository.SeriesRepository
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.emitAll
@@ -19,8 +20,10 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.withTimeout
 import com.streamvault.data.util.toFtsPrefixQuery
 import com.streamvault.data.util.rankSearchResults
+import java.io.IOException
 import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 import com.streamvault.data.preferences.PreferencesRepository
@@ -45,6 +48,7 @@ class SeriesRepositoryImpl @Inject constructor(
         const val SEARCH_RESULT_LIMIT = 200
         const val MIN_SEARCH_QUERY_LENGTH = 2
         const val BROWSE_WINDOW_BUFFER = 80
+        const val XTREAM_SERIES_CATEGORY_TIMEOUT_MILLIS = 60_000L
     }
 
     private data class CachedXtreamProvider(
@@ -711,7 +715,9 @@ class SeriesRepositoryImpl @Inject constructor(
 
             runCatching {
                 val xtreamProvider = getOrCreateXtreamProvider(providerId, provider)
-                when (val result = xtreamProvider.getSeriesList(categoryId)) {
+                when (val result = withXtreamSeriesCategoryTimeout(categoryId) {
+                    xtreamProvider.getSeriesList(categoryId)
+                }) {
                     is Success -> {
                         seriesDao.replaceCategory(
                             providerId,
@@ -724,6 +730,19 @@ class SeriesRepositoryImpl @Inject constructor(
                     else -> Unit
                 }
             }
+        }
+    }
+
+    private suspend fun <T> withXtreamSeriesCategoryTimeout(
+        categoryId: Long,
+        block: suspend () -> T
+    ): T {
+        return try {
+            withTimeout(XTREAM_SERIES_CATEGORY_TIMEOUT_MILLIS) {
+                block()
+            }
+        } catch (e: TimeoutCancellationException) {
+            throw IOException("Timed out after 60 seconds while loading series category $categoryId", e)
         }
     }
 

@@ -1648,3 +1648,18 @@ interface SyncMetadataDao {
     @Query("DELETE FROM sync_metadata WHERE provider_id = :providerId")
     suspend fun delete(providerId: Long)
 }
+
+@Dao
+interface MovieCategoryHydrationDao {
+    @Query("SELECT * FROM movie_category_hydration WHERE provider_id = :providerId AND category_id = :categoryId")
+    suspend fun get(providerId: Long, categoryId: Long): MovieCategoryHydrationEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsert(metadata: MovieCategoryHydrationEntity)
+
+    @Query("DELETE FROM movie_category_hydration WHERE provider_id = :providerId AND category_id = :categoryId")
+    suspend fun delete(providerId: Long, categoryId: Long)
+
+    @Query("DELETE FROM movie_category_hydration WHERE provider_id = :providerId")
+    suspend fun deleteByProvider(providerId: Long)
+}

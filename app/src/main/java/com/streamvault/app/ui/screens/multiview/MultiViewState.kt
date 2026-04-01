@@ -74,8 +74,10 @@ data class MultiViewUiState(
     val presets: List<MultiViewPresetUiModel> = emptyList(),
     val pinnedAudioSlotIndex: Int? = null,
     val replacementCandidates: List<Channel> = emptyList(),
+    val pickerState: MultiViewPickerState = MultiViewPickerState(),
     val performancePolicy: MultiViewPerformancePolicyUiModel = MultiViewPerformancePolicyUiModel(),
-    val telemetry: MultiViewTelemetryUiModel = MultiViewTelemetryUiModel()
+    val telemetry: MultiViewTelemetryUiModel = MultiViewTelemetryUiModel(),
+    val parentalControlLevel: Int = 0
 )
 
 data class MultiViewPresetUiModel(
@@ -83,4 +85,13 @@ data class MultiViewPresetUiModel(
     val label: String,
     val isPopulated: Boolean,
     val channelCount: Int
+)
+
+data class MultiViewPickerState(
+    val categories: List<com.streamvault.domain.model.Category> = emptyList(),
+    val selectedCategory: com.streamvault.domain.model.Category? = null,
+    val channels: List<Channel> = emptyList(),
+    val filteredChannels: List<Channel> = emptyList(),
+    val searchQuery: String = "",
+    val isLoading: Boolean = false
 )

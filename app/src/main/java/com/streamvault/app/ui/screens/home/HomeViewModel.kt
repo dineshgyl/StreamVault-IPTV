@@ -569,7 +569,7 @@ class HomeViewModel @Inject constructor(
                     if (!isActivePreviewSession(previewVersion, channel.id)) return@launch
                     engine.stop()
                     engine.prepare(result.data)
-                    engine.setVolume(0f)
+                    engine.setVolume(1f)
                     engine.play()
                 }
                 is Result.Error -> {

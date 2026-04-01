@@ -209,7 +209,7 @@ class DashboardViewModel @Inject constructor(
                 lastVisitedCategory?.let {
                     add(
                         DashboardLiveShortcut(
-                            label = "Last Group",
+                            label = appContext.getString(R.string.home_last_group),
                             detail = it.name,
                             categoryId = it.id,
                             type = DashboardShortcutType.LAST_GROUP

@@ -11,6 +11,7 @@ data class XtreamProviderSetupCommand(
     val username: String,
     val password: String,
     val name: String,
+    val xtreamFastSyncEnabled: Boolean = true,
     val existingProviderId: Long? = null
 )
 
@@ -46,6 +47,7 @@ class ValidateAndAddProvider @Inject constructor(
                 username = validated.data.username,
                 password = command.password,
                 name = validated.data.name,
+                xtreamFastSyncEnabled = command.xtreamFastSyncEnabled,
                 onProgress = onProgress,
                 id = command.existingProviderId
             ).toUseCaseResult()

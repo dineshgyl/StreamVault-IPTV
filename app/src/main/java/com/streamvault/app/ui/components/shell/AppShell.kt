@@ -24,7 +24,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Menu
@@ -71,6 +70,7 @@ import com.streamvault.app.navigation.Routes
 import com.streamvault.app.ui.design.AppColors
 import com.streamvault.app.ui.design.AppMotion
 import com.streamvault.app.ui.design.FocusSpec
+import com.streamvault.app.ui.interaction.mouseClickable
 import com.streamvault.app.ui.interaction.rememberTvInteractionSounds
 import com.streamvault.app.ui.design.LocalAppShapes
 import com.streamvault.app.ui.design.LocalAppSpacing
@@ -309,6 +309,7 @@ private fun TopNavigationButton(
 ) {
     var isFocused by remember { mutableStateOf(false) }
     val sounds = rememberTvInteractionSounds()
+    val focusRequester = remember { FocusRequester() }
     val scale by animateFloatAsState(
         targetValue = if (isFocused) FocusSpec.FocusedScale else 1f,
         animationSpec = AppMotion.FocusSpec,
@@ -321,6 +322,14 @@ private fun TopNavigationButton(
             onClick()
         },
         modifier = modifier
+            .focusRequester(focusRequester)
+            .mouseClickable(
+                focusRequester = focusRequester,
+                onClick = {
+                    sounds.playSelect()
+                    onClick()
+                }
+            )
             .zIndex(if (isFocused) 1f else 0f) // Keep focused button on top
             .graphicsLayer {
                 scaleX = scale
@@ -449,8 +458,15 @@ fun AppSectionHeader(
         }
 
         if (onActionClick != null && !actionLabel.isNullOrBlank()) {
+            val actionFocusRequester = remember { FocusRequester() }
             Surface(
                 onClick = onActionClick,
+                modifier = Modifier
+                    .focusRequester(actionFocusRequester)
+                    .mouseClickable(
+                        focusRequester = actionFocusRequester,
+                        onClick = onActionClick
+                    ),
                 shape = ClickableSurfaceDefaults.shape(shapes.pill),
                 colors = ClickableSurfaceDefaults.colors(
                     containerColor = AppColors.Brand.copy(alpha = 0.12f),
@@ -556,9 +572,15 @@ fun LoadMoreCard(
     modifier: Modifier = Modifier
 ) {
     val shapes = LocalAppShapes.current
+    val focusRequester = remember { FocusRequester() }
     Surface(
         onClick = onClick,
-        modifier = modifier,
+        modifier = modifier
+            .focusRequester(focusRequester)
+            .mouseClickable(
+                focusRequester = focusRequester,
+                onClick = onClick
+            ),
         shape = ClickableSurfaceDefaults.shape(shapes.medium),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = AppColors.SurfaceElevated,
@@ -694,6 +716,7 @@ private fun RailButton(
     modifier: Modifier = Modifier
 ) {
     var isFocused by remember { mutableStateOf(false) }
+    val focusRequester = remember { FocusRequester() }
     val scale by animateFloatAsState(
         targetValue = if (isFocused) FocusSpec.FocusedScale else 1f,
         animationSpec = AppMotion.FocusSpec,
@@ -703,6 +726,11 @@ private fun RailButton(
     Surface(
         onClick = onClick,
         modifier = modifier
+            .focusRequester(focusRequester)
+            .mouseClickable(
+                focusRequester = focusRequester,
+                onClick = onClick
+            )
             .fillMaxWidth()
             .graphicsLayer {
                 scaleX = scale
@@ -765,7 +793,6 @@ private fun buildDestinationItems(): List<DestinationItem> = listOf(
     DestinationItem(Routes.LIVE_TV, R.string.nav_live_tv, Icons.Default.PlayArrow),
     DestinationItem(Routes.MOVIES, R.string.nav_movies, Icons.Default.Star),
     DestinationItem(Routes.SERIES, R.string.nav_series, Icons.Default.Menu),
-    DestinationItem(Routes.FAVORITES, R.string.favorites_title, Icons.Default.Favorite),
     DestinationItem(Routes.EPG, R.string.nav_epg, Icons.Default.Info),
     DestinationItem(Routes.SEARCH, R.string.search_title, Icons.Default.Search),
     DestinationItem(Routes.SETTINGS, R.string.nav_settings, Icons.Default.Settings)

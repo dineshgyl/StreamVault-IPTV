@@ -4,8 +4,15 @@ import android.view.View
 import android.view.KeyEvent
 import androidx.activity.compose.BackHandler
 import androidx.annotation.OptIn
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -45,6 +52,7 @@ import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -61,14 +69,19 @@ import androidx.media3.common.util.UnstableApi
 import androidx.tv.material3.Border
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.Button
+import androidx.tv.material3.ButtonDefaults
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.platform.LocalContext
 import com.streamvault.app.R
+import com.streamvault.app.ui.components.dialogs.PinDialog
 import com.streamvault.app.ui.components.dialogs.PremiumDialog
 import com.streamvault.app.ui.components.dialogs.PremiumDialogActionButton
 import com.streamvault.app.ui.components.dialogs.PremiumDialogFooterButton
 import com.streamvault.app.ui.theme.Primary
 import com.streamvault.player.PlayerSurfaceResizeMode
+import kotlinx.coroutines.launch
 
 @Composable
 fun MultiViewScreen(
@@ -82,13 +95,16 @@ fun MultiViewScreen(
     var showReplacementPicker by remember { mutableStateOf(false) }
     var showControls by rememberSaveable { mutableStateOf(false) }
 
-    BackHandler {
-        when {
-            showReplacementPicker -> showReplacementPicker = false
-            showControls -> showControls = false
-            else -> onBack()
+    BackHandler(enabled = showReplacementPicker) {
+        if (uiState.pickerState.selectedCategory != null) {
+            viewModel.backToPickerCategories()
+        } else {
+            showReplacementPicker = false
+            viewModel.resetPicker()
         }
     }
+    BackHandler(enabled = showControls) { showControls = false }
+    BackHandler(enabled = !showReplacementPicker && !showControls) { onBack() }
 
     LaunchedEffect(Unit) {
         viewModel.initSlots()
@@ -163,11 +179,21 @@ fun MultiViewScreen(
     ) {
         if (showReplacementPicker) {
             ReplaceSlotDialog(
-                candidates = uiState.replacementCandidates,
-                onDismiss = { showReplacementPicker = false },
+                pickerState = uiState.pickerState,
+                parentalControlLevel = uiState.parentalControlLevel,
+                onDismiss = {
+                    showReplacementPicker = false
+                    viewModel.resetPicker()
+                },
+                onSelectCategory = viewModel::selectPickerCategory,
+                onBackToCategories = viewModel::backToPickerCategories,
+                onUpdateSearch = viewModel::updatePickerSearch,
+                onVerifyPin = viewModel::verifyPin,
+                onUnlockCategory = viewModel::unlockPickerCategory,
                 onReplace = { channel ->
                     viewModel.replaceFocusedSlot(channel)
                     showReplacementPicker = false
+                    viewModel.resetPicker()
                 }
             )
         }
@@ -184,6 +210,7 @@ fun MultiViewScreen(
                         .fillMaxHeight()
                         .focusRequester(firstSlotFocusRequester)
                         .focusProperties {
+                            canFocus = !showControls
                             if (showControls) down = firstControlFocusRequester
                         },
                     onFocused = { viewModel.setFocus(0) }
@@ -197,6 +224,7 @@ fun MultiViewScreen(
                         .weight(1f)
                         .fillMaxHeight()
                         .focusProperties {
+                            canFocus = !showControls
                             if (showControls) down = firstControlFocusRequester
                         },
                     onFocused = { viewModel.setFocus(1) }
@@ -212,6 +240,7 @@ fun MultiViewScreen(
                         .weight(1f)
                         .fillMaxHeight()
                         .focusProperties {
+                            canFocus = !showControls
                             if (showControls) down = firstControlFocusRequester
                         },
                     onFocused = { viewModel.setFocus(2) }
@@ -225,6 +254,7 @@ fun MultiViewScreen(
                         .weight(1f)
                         .fillMaxHeight()
                         .focusProperties {
+                            canFocus = !showControls
                             if (showControls) down = firstControlFocusRequester
                         },
                     onFocused = { viewModel.setFocus(3) }
@@ -233,24 +263,38 @@ fun MultiViewScreen(
         }
 
         val focused = uiState.slots.getOrNull(uiState.focusedSlotIndex)
-        if (showControls) {
-            Column(
+        AnimatedVisibility(
+            visible = showControls,
+            enter = fadeIn(animationSpec = tween(180)),
+            exit = fadeOut(animationSpec = tween(140)),
+            modifier = Modifier.fillMaxSize()
+        ) {
+            Box(
                 modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(bottom = 14.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
+                    .fillMaxSize()
+                    .background(Color.Black.copy(alpha = 0.26f))
             ) {
-                MultiViewControlHud(
-                    focused = focused,
-                    uiState = uiState,
-                    firstControlFocusRequester = firstControlFocusRequester,
-                    onShowReplacementPicker = { showReplacementPicker = true },
-                    onRemoveFocusedSlot = viewModel::removeFocusedSlot,
-                    onClearPinnedAudio = viewModel::clearPinnedAudio,
-                    onPinAudioToFocusedSlot = viewModel::pinAudioToFocusedSlot,
-                    onLoadPreset = viewModel::loadPreset,
-                    onSavePreset = viewModel::saveCurrentAsPreset
-                )
+                Column(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 14.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    EnhancedMultiViewControlHud(
+                        focused = focused,
+                        uiState = uiState,
+                        firstControlFocusRequester = firstControlFocusRequester,
+                        onShowReplacementPicker = {
+                            viewModel.openReplacementPicker()
+                            showReplacementPicker = true
+                        },
+                        onRemoveFocusedSlot = viewModel::removeFocusedSlot,
+                        onClearPinnedAudio = viewModel::clearPinnedAudio,
+                        onPinAudioToFocusedSlot = viewModel::pinAudioToFocusedSlot,
+                        onLoadPreset = viewModel::loadPreset,
+                        onSavePreset = viewModel::saveCurrentAsPreset
+                    )
+                }
             }
         }
     }
@@ -547,38 +591,173 @@ private fun MultiViewControlHud(
 
 @Composable
 private fun ReplaceSlotDialog(
-    candidates: List<com.streamvault.domain.model.Channel>,
+    pickerState: MultiViewPickerState,
+    parentalControlLevel: Int,
     onDismiss: () -> Unit,
+    onSelectCategory: (com.streamvault.domain.model.Category) -> Unit,
+    onBackToCategories: () -> Unit,
+    onUpdateSearch: (String) -> Unit,
+    onVerifyPin: suspend (String) -> Boolean,
+    onUnlockCategory: (Long) -> Unit,
     onReplace: (com.streamvault.domain.model.Channel) -> Unit
 ) {
+    var catSearch by remember { mutableStateOf("") }
+    val selectedCategory = pickerState.selectedCategory
+    val searchQuery = if (selectedCategory == null) catSearch else pickerState.searchQuery
+    val onSearchChange: (String) -> Unit = if (selectedCategory == null) {
+        { catSearch = it }
+    } else {
+        onUpdateSearch
+    }
+
+    // Parental PIN state
+    val scope = rememberCoroutineScope()
+    val context = LocalContext.current
+    var showPinDialog by remember { mutableStateOf(false) }
+    var pinError by remember { mutableStateOf<String?>(null) }
+    var pendingLockedCategory by remember { mutableStateOf<com.streamvault.domain.model.Category?>(null) }
+
+    fun isCategoryLocked(cat: com.streamvault.domain.model.Category): Boolean =
+        parentalControlLevel == 1 && (cat.isAdult || cat.isUserProtected)
+
     PremiumDialog(
-        title = stringResource(R.string.multiview_replace_title),
-        subtitle = stringResource(R.string.multiview_replace_empty),
+        title = if (selectedCategory == null) stringResource(R.string.multiview_replace_title) else selectedCategory.name,
+        subtitle = if (selectedCategory == null) "Choose a category, then pick a channel" else null,
         onDismissRequest = onDismiss,
-        widthFraction = 0.5f,
+        widthFraction = 0.62f,
         content = {
-            if (candidates.isEmpty()) {
-                Text(
-                    text = stringResource(R.string.multiview_replace_empty),
-                    color = Color.White.copy(alpha = 0.72f),
-                    style = MaterialTheme.typography.bodyMedium
-                )
-            } else {
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    candidates.forEach { channel ->
-                        PremiumDialogActionButton(
-                            label = channel.name,
-                            onClick = { onReplace(channel) }
+            // Search bar
+            BasicTextField(
+                value = searchQuery,
+                onValueChange = onSearchChange,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .background(Color.White.copy(alpha = 0.07f), RoundedCornerShape(12.dp))
+                    .padding(horizontal = 16.dp, vertical = 10.dp),
+                textStyle = MaterialTheme.typography.bodyMedium.copy(color = Color.White),
+                singleLine = true,
+                cursorBrush = SolidColor(Primary),
+                decorationBox = { innerTextField ->
+                    Box {
+                        if (searchQuery.isEmpty()) {
+                            Text(
+                                text = if (selectedCategory == null) "Search categories\u2026" else "Search channels\u2026",
+                                color = Color.White.copy(alpha = 0.38f),
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
+                        innerTextField()
+                    }
+                }
+            )
+
+            when {
+                pickerState.isLoading -> {
+                    Box(
+                        modifier = Modifier.fillMaxWidth().height(240.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        CircularProgressIndicator(
+                            color = Primary,
+                            modifier = Modifier.size(32.dp)
                         )
+                    }
+                }
+                selectedCategory == null -> {
+                    val filtered = if (catSearch.isBlank()) pickerState.categories
+                        else pickerState.categories.filter { it.name.contains(catSearch, ignoreCase = true) }
+                    if (filtered.isEmpty()) {
+                        Text(
+                            text = "No categories found",
+                            color = Color.White.copy(alpha = 0.5f),
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier.height(320.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            items(filtered, key = { it.id }) { category ->
+                                val locked = isCategoryLocked(category)
+                                PremiumDialogActionButton(
+                                    label = if (locked) "\uD83D\uDD12 ${category.name}" else category.name,
+                                    onClick = {
+                                        if (locked) {
+                                            pendingLockedCategory = category
+                                            pinError = null
+                                            showPinDialog = true
+                                        } else {
+                                            onSelectCategory(category)
+                                        }
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+                else -> {
+                    val filtered = pickerState.filteredChannels
+                    if (filtered.isEmpty() && !pickerState.isLoading) {
+                        Text(
+                            text = "No channels found",
+                            color = Color.White.copy(alpha = 0.5f),
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    } else {
+                        LazyColumn(
+                            modifier = Modifier.height(320.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)
+                        ) {
+                            items(filtered, key = { it.id }) { channel ->
+                                PremiumDialogActionButton(
+                                    label = channel.name,
+                                    onClick = { onReplace(channel) }
+                                )
+                            }
+                        }
                     }
                 }
             }
         },
         footer = {
+            if (selectedCategory != null) {
+                PremiumDialogFooterButton(
+                    label = "\u2190 Back",
+                    onClick = onBackToCategories
+                )
+            }
             PremiumDialogFooterButton(
                 label = stringResource(R.string.settings_cancel),
                 onClick = onDismiss
             )
         }
     )
+
+    if (showPinDialog) {
+        PinDialog(
+            onDismissRequest = {
+                showPinDialog = false
+                pinError = null
+                pendingLockedCategory = null
+            },
+            onPinEntered = { pin ->
+                scope.launch {
+                    if (onVerifyPin(pin)) {
+                        val cat = pendingLockedCategory
+                        if (cat != null) {
+                            onUnlockCategory(cat.id)
+                            showPinDialog = false
+                            pinError = null
+                            pendingLockedCategory = null
+                            onSelectCategory(cat)
+                        }
+                    } else {
+                        pinError = context.getString(R.string.home_incorrect_pin)
+                    }
+                }
+            },
+            title = stringResource(R.string.pin_dialog_title),
+            error = pinError
+        )
+    }
 }

@@ -42,7 +42,8 @@ data class XtreamServerInfo(
 data class XtreamCategory(
     @SerialName("category_id") @Serializable(with = LenientStringSerializer::class) val categoryId: String = "0",
     @SerialName("category_name") @Serializable(with = LenientStringSerializer::class) val categoryName: String = "",
-    @SerialName("parent_id") @Serializable(with = LenientIntSerializer::class) val parentId: Int = 0
+    @SerialName("parent_id") @Serializable(with = LenientIntSerializer::class) val parentId: Int = 0,
+    @SerialName("is_adult") @Serializable(with = LenientNullableBooleanSerializer::class) val isAdult: Boolean? = null
 )
 
 @Serializable

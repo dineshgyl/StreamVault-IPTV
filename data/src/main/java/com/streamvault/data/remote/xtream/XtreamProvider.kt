@@ -30,7 +30,8 @@ class XtreamProvider(
     private val serverUrl: String,
     private val username: String,
     private val password: String,
-    private val allowedOutputFormats: List<String> = emptyList()
+    private val allowedOutputFormats: List<String> = emptyList(),
+    private val useTextClassification: Boolean = true
 ) : IptvProvider {
     companion object {
         private const val TAG = "XtreamProvider"
@@ -507,7 +508,7 @@ class XtreamProvider(
                 emptyList()
             }
             return categories
-                .filter { AdultContentClassifier.isAdultCategoryName(it.categoryName) }
+                .filter { it.isAdult == true || (useTextClassification && AdultContentClassifier.isAdultCategoryName(it.categoryName)) }
                 .mapNotNull { resolveXtreamCategory(type, it.categoryId, it.categoryName).id }
                 .toSet()
                 .also { adultCategoryCache[type] = it }
@@ -516,7 +517,7 @@ class XtreamProvider(
 
     private suspend fun cacheAdultCategoryIds(type: ContentType, categories: List<XtreamCategory>) {
         val ids = categories
-            .filter { AdultContentClassifier.isAdultCategoryName(it.categoryName) }
+            .filter { it.isAdult == true || (useTextClassification && AdultContentClassifier.isAdultCategoryName(it.categoryName)) }
             .mapNotNull { resolveXtreamCategory(type, it.categoryId, it.categoryName).id }
             .toSet()
         adultCategoryCacheMutex.withLock {
@@ -532,7 +533,7 @@ class XtreamProvider(
     ): Boolean {
         return explicitAdult == true ||
             (categoryId != null && categoryId in adultCategoryIds) ||
-            AdultContentClassifier.isAdultCategoryName(categoryName)
+            (useTextClassification && AdultContentClassifier.isAdultCategoryName(categoryName))
     }
 
     private fun normalizeAllowedOutputFormats(formats: List<String>): List<String> {
@@ -625,7 +626,7 @@ class XtreamProvider(
             name = category.name ?: "Uncategorized",
             parentId = if (parentId > 0) parentId.toLong() else null,
             type = type,
-            isAdult = AdultContentClassifier.isAdultCategoryName(category.name)
+            isAdult = isAdult == true || (useTextClassification && AdultContentClassifier.isAdultCategoryName(category.name))
         )
     }
 

@@ -114,7 +114,7 @@ private class FakeMovieRepository(
     override fun getMoviesByCategory(providerId: Long, categoryId: Long): Flow<List<Movie>> = unsupported()
     override fun getMoviesByCategoryPage(providerId: Long, categoryId: Long, limit: Int, offset: Int): Flow<List<Movie>> = unsupported()
     override fun getMoviesByCategoryPreview(providerId: Long, categoryId: Long, limit: Int): Flow<List<Movie>> = unsupported()
-    override fun getCategoryPreviewRows(providerId: Long, limitPerCategory: Int): Flow<Map<Long?, List<Movie>>> = unsupported()
+    override fun getCategoryPreviewRows(providerId: Long, categoryIds: List<Long>, limitPerCategory: Int): Flow<Map<Long?, List<Movie>>> = unsupported()
     override fun getTopRatedPreview(providerId: Long, limit: Int): Flow<List<Movie>> = unsupported()
     override fun getFreshPreview(providerId: Long, limit: Int): Flow<List<Movie>> = unsupported()
     override fun getRecommendations(providerId: Long, limit: Int): Flow<List<Movie>> = unsupported()

@@ -33,10 +33,12 @@ import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -73,6 +75,8 @@ import com.streamvault.domain.model.Program
 import com.streamvault.domain.model.RecordingStatus
 import coil3.compose.AsyncImage
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -1217,6 +1221,31 @@ private fun PlayerTransportButton(
     buttonSize: androidx.compose.ui.unit.Dp = 56.dp,
     modifier: Modifier = Modifier
 ) {
+    val coroutineScope = rememberCoroutineScope()
+    val latestOnClick by rememberUpdatedState(onClick)
+    var repeatJob by remember { mutableStateOf<Job?>(null) }
+
+    fun stopRepeating() {
+        repeatJob?.cancel()
+        repeatJob = null
+    }
+
+    fun performSeekStep() {
+        latestOnClick()
+    }
+
+    fun startRepeating() {
+        if (repeatJob?.isActive == true) return
+        performSeekStep()
+        repeatJob = coroutineScope.launch {
+            delay(350L)
+            while (true) {
+                performSeekStep()
+                delay(180L)
+            }
+        }
+    }
+
     Surface(
         onClick = onClick,
         shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(50)),
@@ -1226,6 +1255,26 @@ private fun PlayerTransportButton(
         ),
         modifier = modifier
             .size(buttonSize)
+            .onPreviewKeyEvent { event ->
+                when (event.nativeKeyEvent.keyCode) {
+                    android.view.KeyEvent.KEYCODE_DPAD_CENTER,
+                    android.view.KeyEvent.KEYCODE_ENTER,
+                    android.view.KeyEvent.KEYCODE_NUMPAD_ENTER -> {
+                        when (event.nativeKeyEvent.action) {
+                            android.view.KeyEvent.ACTION_DOWN -> {
+                                startRepeating()
+                                true
+                            }
+                            android.view.KeyEvent.ACTION_UP -> {
+                                stopRepeating()
+                                true
+                            }
+                            else -> false
+                        }
+                    }
+                    else -> false
+                }
+            }
             .semantics { this.contentDescription = contentDescription }
     ) {
         Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
@@ -1235,6 +1284,10 @@ private fun PlayerTransportButton(
                 color = Color.White
             )
         }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose { stopRepeating() }
     }
 }
 

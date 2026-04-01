@@ -63,6 +63,7 @@ class ValidateAndAddProviderTest {
                 username = " alice ",
                 password = "secret",
                 name = " Premium ",
+                xtreamFastSyncEnabled = true,
                 existingProviderId = 7L
             )
         )
@@ -74,6 +75,7 @@ class ValidateAndAddProviderTest {
                 username = "alice",
                 password = "secret",
                 name = "Premium",
+                xtreamFastSyncEnabled = true,
                 id = 7L
             )
         )
@@ -145,6 +147,7 @@ private data class XtreamCall(
     val username: String,
     val password: String,
     val name: String,
+    val xtreamFastSyncEnabled: Boolean,
     val id: Long?
 )
 
@@ -177,10 +180,11 @@ private class FakeProviderRepository : ProviderRepository {
         username: String,
         password: String,
         name: String,
+        xtreamFastSyncEnabled: Boolean,
         onProgress: ((String) -> Unit)?,
         id: Long?
     ): Result<Provider> {
-        lastXtreamCall = XtreamCall(serverUrl, username, password, name, id)
+        lastXtreamCall = XtreamCall(serverUrl, username, password, name, xtreamFastSyncEnabled, id)
         return Result.success(provider(id = id ?: 1L, name = name, type = ProviderType.XTREAM_CODES))
     }
 

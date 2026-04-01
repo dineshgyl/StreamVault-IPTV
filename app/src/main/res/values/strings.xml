@@ -380,6 +380,21 @@
     <string name="settings_connect">Connect</string>
     <string name="settings_syncing_btn">Syncing...</string>
     <string name="settings_sync_btn">Sync</string>
+    <string name="settings_sync_dialog_title">Sync %1$s</string>
+    <string name="settings_sync_dialog_subtitle">Choose what to refresh for this provider.</string>
+    <string name="settings_sync_option_all">Sync All</string>
+    <string name="settings_sync_option_fast">Fast Sync</string>
+    <string name="settings_sync_option_tv">Sync TV</string>
+    <string name="settings_sync_option_movies">Sync Movies</string>
+    <string name="settings_sync_option_series">Sync Series</string>
+    <string name="settings_sync_option_epg">Sync EPG</string>
+    <string name="settings_sync_option_custom">Custom Sync</string>
+    <string name="settings_sync_custom_title">Custom Sync for %1$s</string>
+    <string name="settings_sync_custom_subtitle">Pick one or more sections to refresh.</string>
+    <string name="settings_sync_custom_required">Choose at least one section to sync.</string>
+    <string name="settings_sync_sections_success">Synced: %1$s.</string>
+    <string name="settings_sync_sections_failed">Sync failed: %1$s.</string>
+    <string name="settings_sync_sections_partial">Synced: %1$s. Failed: %2$s.</string>
     <string name="settings_edit">Edit</string>
     <string name="settings_delete">Delete</string>
     <string name="settings_pc_btn">Parental Control</string>
@@ -459,6 +474,16 @@
     <string name="settings_recording_stop">Stop</string>
     <string name="settings_recording_cancel">Cancel</string>
     <string name="settings_recording_delete">Delete</string>
+    <string name="settings_recording_stopped">Recording stopped</string>
+    <string name="settings_recording_cancelled">Recording cancelled</string>
+    <string name="settings_recording_deleted">Recording deleted</string>
+    <string name="settings_recording_stop_failed">Stop failed: %1$s</string>
+    <string name="settings_recording_cancel_failed">Cancel failed: %1$s</string>
+    <string name="settings_recording_delete_failed">Delete failed: %1$s</string>
+    <string name="settings_capability_xtream_with_epg">Xtream source with XMLTV guide support and on-demand guide fallback. Catch-up is available when the provider exposes replay streams.</string>
+    <string name="settings_capability_xtream_without_epg">Xtream source with on-demand guide fallback. Catch-up depends on provider replay support.</string>
+    <string name="settings_capability_m3u_with_epg">M3U source with XMLTV guide. Archive support depends on provider stream templates.</string>
+    <string name="settings_capability_m3u_without_epg">M3U source without guide URL. Guide and archive coverage may be limited.</string>
 
     
     <string name="favorites_title">Saved</string>
@@ -551,6 +576,8 @@
     <string name="search_hint">Search...</string>
     <string name="search_recent_title">Recent Searches</string>
     <string name="search_clear_history">Clear</string>
+    <string name="library_action_hide_search">Hide Search</string>
+    <string name="library_action_filters_sort">Filters &amp; Sort</string>
     <string name="a11y_selected">Selected</string>
     <string name="a11y_recent_search">Recent search %1$s</string>
     <string name="a11y_locked">Locked</string>
@@ -584,6 +611,8 @@
     <string name="setup_connecting">Connecting...</string>
     <string name="setup_save">Save Changes</string>
     <string name="setup_login">Login</string>
+    <string name="setup_xtream_fast_sync_label">Fast Sync</string>
+    <string name="setup_xtream_fast_sync_helper">Xtream only. Loads VOD categories first and fetches movie rows on demand. Recommended for very large providers.</string>
     <string name="setup_m3u_hint">M3U URL</string>
     <string name="setup_tab_url">URL</string>
     <string name="setup_tab_file">File</string>
@@ -922,6 +951,8 @@
     <string name="settings_clear_history">Clear Watch History</string>
     <string name="settings_clear_history_subtitle">Wipe all watch progress and recents for all providers.</string>
     <string name="settings_clear_history_confirm">Clear History</string>
+    <string name="settings_xtream_text_classification">Xtream Name-Based Adult Detection</string>
+    <string name="settings_xtream_text_classification_subtitle">Use category name keywords to flag adult content when the provider doesn\'t set the adult flag explicitly</string>
     <string name="settings_clear_history_dialog_title">Clear Watch History?</string>
     <string name="settings_clear_history_dialog_body">This will permanently delete all watch history, continue watching progress, and last visited categories across all providers.</string>
 
@@ -1003,4 +1034,19 @@
     <string name="settings_history_cleared">Watch history and recents cleared</string>
     <string name="settings_pin_changed">PIN saved successfully</string>
     <string name="home_reorder_channels">Reorder Channels</string>
+    <string name="tv_input_setup_scanning_title">Scanning StreamVault channels</string>
+    <string name="tv_input_setup_success_title">Live TV is ready</string>
+    <string name="tv_input_setup_no_provider_title">No IPTV provider configured</string>
+    <string name="tv_input_setup_error_title">Auto scan failed</string>
+    <string name="tv_input_setup_idle_title">Preparing Live TV integration</string>
+    <string name="tv_input_setup_scanning_body">StreamVault is syncing your active provider into Android TV Live TV.</string>
+    <string name="tv_input_setup_success_body">Your channels were synced successfully.</string>
+    <string name="tv_input_setup_no_provider_body">Add at least one IPTV provider in StreamVault, then return here to scan channels into Android TV Live TV.</string>
+    <string name="tv_input_setup_error_body">The TV input sync did not complete.</string>
+    <string name="tv_input_setup_idle_body">Please wait.</string>
+    <string name="tv_input_setup_source_format">Source: %1$s</string>
+    <string name="tv_input_setup_open_setup">Open StreamVault Setup</string>
+    <string name="tv_input_setup_try_scan_again">Try Auto Scan Again</string>
+    <string name="tv_input_setup_retry_scan">Retry Auto Scan</string>
+    <string name="tv_input_setup_success_hint">Android TV Live TV can now open your StreamVault channels.</string>
 </resources>

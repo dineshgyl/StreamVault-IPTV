@@ -39,7 +39,6 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -81,7 +80,6 @@ import com.streamvault.app.ui.design.AppColors.TextTertiary as OnSurfaceDim
 import com.streamvault.domain.model.Channel
 import com.streamvault.domain.model.Program
 import com.streamvault.player.PlayerStats
-import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -546,17 +544,6 @@ fun ChannelInfoOverlay(
                 }
                 item {
                     QuickActionButton(
-                        icon = stringResource(R.string.player_action_pip),
-                        label = stringResource(R.string.player_pip_short),
-                        onClick = {
-                            onOverlayInteracted()
-                            onEnterPictureInPicture()
-                        },
-                        onInteraction = onOverlayInteracted
-                    )
-                }
-                item {
-                    QuickActionButton(
                         icon = stringResource(R.string.player_action_view),
                         label = currentAspectRatio,
                         onClick = {
@@ -636,8 +623,6 @@ fun ChannelListOverlay(
     recentChannels: List<Channel>,
     currentChannelId: Long,
     overlayFocusRequester: FocusRequester = remember { FocusRequester() },
-    preferredFocusedChannelId: Long? = null,
-    onFocusedChannelChange: (Long) -> Unit = {},
     lastVisitedCategoryName: String? = null,
     onOpenLastGroup: () -> Unit = {},
     onOpenCategories: () -> Unit = {},
@@ -649,12 +634,6 @@ fun ChannelListOverlay(
     val currentIndex = remember(channels, currentChannelId) {
         channels.indexOfFirst { it.id == currentChannelId }.coerceAtLeast(0)
     }
-    val preferredIndex = remember(channels, currentChannelId, preferredFocusedChannelId) {
-        val focused = preferredFocusedChannelId?.let { channelId ->
-            channels.indexOfFirst { it.id == channelId }.takeIf { it >= 0 }
-        }
-        focused ?: currentIndex
-    }
     val channelNumbersById = remember(channels) {
         channels.mapIndexed { index, channel ->
             channel.id to (channel.number.takeIf { it > 0 } ?: (index + 1))
@@ -662,7 +641,6 @@ fun ChannelListOverlay(
     }
     val canScrollUp by remember { derivedStateOf { listState.canScrollBackward } }
     val canScrollDown by remember { derivedStateOf { listState.canScrollForward } }
-    val scope = rememberCoroutineScope()
     val isRtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     // Count header items before the channels list so we can map channel index → lazy index
     val headerItemCount = remember(lastVisitedCategoryName, recentChannels) {
@@ -672,9 +650,9 @@ fun ChannelListOverlay(
         count
     }
 
-    LaunchedEffect(channels, preferredIndex) {
+    LaunchedEffect(channels, currentIndex, headerItemCount) {
         if (channels.isNotEmpty()) {
-            listState.scrollToItem(preferredIndex)
+            listState.scrollToItem(headerItemCount + currentIndex)
         }
     }
 
@@ -699,7 +677,7 @@ fun ChannelListOverlay(
                     .padding(20.dp)
             } else {
                 Modifier
-                    .width(500.dp)
+                    .width(540.dp)
                     .fillMaxWidth()
                     .fillMaxHeight()
                     .padding(20.dp)
@@ -710,8 +688,8 @@ fun ChannelListOverlay(
                     androidx.compose.foundation.lazy.LazyColumn(
                         state = listState,
                         modifier = Modifier.fillMaxSize(),
-                        contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                        contentPadding = PaddingValues(top = 10.dp, bottom = 20.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
                     item {
                         Row(
@@ -778,7 +756,7 @@ fun ChannelListOverlay(
                             ) {
                                 Text(
                                     text = stringResource(R.string.player_recent_channels),
-                                    style = MaterialTheme.typography.labelLarge,
+                                    style = MaterialTheme.typography.labelMedium,
                                     color = OnSurfaceDim,
                                     modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp)
                                 )
@@ -822,12 +800,12 @@ fun ChannelListOverlay(
                                                     ?: "--"
                                                 Text(
                                                     text = recentNumber,
-                                                    style = MaterialTheme.typography.labelMedium,
+                                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 12.sp),
                                                     color = Color.White.copy(alpha = 0.75f)
                                                 )
                                                 Text(
                                                     text = channel.name,
-                                                    style = MaterialTheme.typography.bodySmall,
+                                                    style = MaterialTheme.typography.bodySmall.copy(fontSize = 13.sp),
                                                     color = Color.White,
                                                     maxLines = 1,
                                                     overflow = TextOverflow.Ellipsis
@@ -842,7 +820,7 @@ fun ChannelListOverlay(
                     items(channels.size) { index ->
                         val channel = channels[index]
                         val isSelected = channel.id == currentChannelId
-                        val shouldRequestFocus = preferredFocusedChannelId?.let { it == channel.id } ?: isSelected
+                        val shouldRequestFocus = isSelected
                         val channelNumber = channel.number.takeIf { it > 0 } ?: (index + 1)
                         var isFocused by remember { mutableStateOf(false) }
                         val bgColor = when {
@@ -863,24 +841,6 @@ fun ChannelListOverlay(
                                     isFocused = focusState.isFocused
                                     if (focusState.isFocused) {
                                         onOverlayInteracted()
-                                        onFocusedChannelChange(channel.id)
-                                        // Scroll-ahead: when focused item is at the viewport
-                                        // edge, instantly shift the window by 1 so the next
-                                        // item is already visible before the next D-pad press.
-                                        scope.launch {
-                                            val visible = listState.layoutInfo.visibleItemsInfo
-                                            if (visible.isEmpty()) return@launch
-                                            val myLazyIndex = headerItemCount + index
-                                            when {
-                                                myLazyIndex >= visible.last().index && index < channels.size - 1 -> {
-                                                    listState.scrollToItem(listState.firstVisibleItemIndex + 1)
-                                                }
-                                                myLazyIndex <= visible.first().index && index > 0 -> {
-                                                    val newFirst = (listState.firstVisibleItemIndex - 1).coerceAtLeast(0)
-                                                    listState.scrollToItem(newFirst)
-                                                }
-                                            }
-                                        }
                                     }
                                 }
                                 .then(
@@ -888,7 +848,7 @@ fun ChannelListOverlay(
                                     else Modifier
                                 ),
                             scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
-                            shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(12.dp)),
+                            shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(16.dp)),
                             colors = ClickableSurfaceDefaults.colors(
                                 containerColor = bgColor,
                                 focusedContainerColor = bgColor
@@ -897,31 +857,20 @@ fun ChannelListOverlay(
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                                    .padding(horizontal = 16.dp, vertical = 10.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
                             ) {
-                                Box(
-                                    modifier = Modifier.width(48.dp),
-                                    contentAlignment = Alignment.CenterStart
-                                ) {
-                                    if (isSelected) {
-                                        StatusPill(
-                                            label = stringResource(R.string.player_channel_selected),
-                                            containerColor = AppColors.BrandMuted
-                                        )
-                                    }
-                                }
                                 Text(
                                     text = channelNumber.toString().padStart(2, '0'),
-                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 16.sp),
+                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 13.sp),
                                     color = Color.White.copy(alpha = 0.72f),
                                     textAlign = TextAlign.Start,
-                                    modifier = Modifier.width(28.dp)
+                                    modifier = Modifier.width(32.dp)
                                 )
                                 Text(
                                     text = channel.name,
-                                    style = MaterialTheme.typography.bodyMedium.copy(fontSize = 22.sp),
+                                    style = MaterialTheme.typography.bodyLarge.copy(fontSize = 17.sp),
                                     color = Color.White,
                                     maxLines = 1,
                                     overflow = if (isFocused) TextOverflow.Clip else TextOverflow.Ellipsis,
@@ -933,13 +882,19 @@ fun ChannelListOverlay(
                                                     iterations = Int.MAX_VALUE,
                                                     initialDelayMillis = 600,
                                                     repeatDelayMillis = 900,
-                                                    velocity = 26.dp
+                                                    velocity = 20.dp
                                                 )
                                             } else {
                                                 Modifier
                                             }
                                         )
                                 )
+                                if (isSelected) {
+                                    StatusPill(
+                                        label = stringResource(R.string.player_channel_selected),
+                                        containerColor = AppColors.BrandMuted
+                                    )
+                                }
                                 if (channel.catchUpSupported) {
                                     StatusPill(
                                         label = stringResource(R.string.player_archive_badge),

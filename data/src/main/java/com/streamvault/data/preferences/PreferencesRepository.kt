@@ -87,6 +87,7 @@ class PreferencesRepository @Inject constructor(
         val LAST_SPEED_TEST_ESTIMATED = booleanPreferencesKey("last_speed_test_estimated")
         val GUIDE_SCHEDULED_ONLY = intPreferencesKey("guide_scheduled_only")
         val RECENT_SEARCH_QUERIES = stringPreferencesKey("recent_search_queries")
+        val XTREAM_TEXT_CLASSIFICATION = booleanPreferencesKey("xtream_text_classification")
     }
 
     private object ParentalSessionKeys {
@@ -120,6 +121,10 @@ class PreferencesRepository @Inject constructor(
 
     val isIncognitoMode: Flow<Boolean> = context.dataStore.data.map { preferences ->
         preferences[PreferencesKeys.IS_INCOGNITO_MODE] ?: false
+    }
+
+    val useXtreamTextClassification: Flow<Boolean> = context.dataStore.data.map { preferences ->
+        preferences[PreferencesKeys.XTREAM_TEXT_CLASSIFICATION] ?: true // default ON
     }
 
     val playerMuted: Flow<Boolean> = context.dataStore.data.map { preferences ->
@@ -219,6 +224,12 @@ class PreferencesRepository @Inject constructor(
     suspend fun setIncognitoMode(enabled: Boolean) {
         context.dataStore.edit { preferences ->
             preferences[PreferencesKeys.IS_INCOGNITO_MODE] = enabled
+        }
+    }
+
+    suspend fun setUseXtreamTextClassification(enabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferencesKeys.XTREAM_TEXT_CLASSIFICATION] = enabled
         }
     }
 

@@ -13,11 +13,12 @@ interface ProviderRepository {
     suspend fun updateProvider(provider: Provider): Result<Unit>
     suspend fun deleteProvider(id: Long): Result<Unit>
     suspend fun setActiveProvider(id: Long): Result<Unit>
-    suspend fun loginXtream(serverUrl: String, username: String, password: String, name: String, onProgress: ((String) -> Unit)? = null, id: Long? = null): Result<Provider>
+    suspend fun loginXtream(serverUrl: String, username: String, password: String, name: String, xtreamFastSyncEnabled: Boolean, onProgress: ((String) -> Unit)? = null, id: Long? = null): Result<Provider>
     suspend fun validateM3u(url: String, name: String, onProgress: ((String) -> Unit)? = null, id: Long? = null): Result<Provider>
     suspend fun refreshProviderData(
         providerId: Long,
         force: Boolean = false,
+        movieFastSyncOverride: Boolean? = null,
         onProgress: ((String) -> Unit)? = null
     ): Result<Unit>
     suspend fun getProgramsForLiveStream(

@@ -28,9 +28,10 @@ import com.streamvault.data.local.entity.*
         FavoriteEntity::class,
         VirtualGroupEntity::class,
         PlaybackHistoryEntity::class,
-        SyncMetadataEntity::class
+        SyncMetadataEntity::class,
+        MovieCategoryHydrationEntity::class
     ],
-    version = 23,
+    version = 24,
     exportSchema = true   // ← was false; schema JSON now tracked in version control
 )
 @TypeConverters(RoomEnumConverters::class)
@@ -48,6 +49,7 @@ abstract class StreamVaultDatabase : RoomDatabase() {
     abstract fun virtualGroupDao(): VirtualGroupDao
     abstract fun playbackHistoryDao(): PlaybackHistoryDao
     abstract fun syncMetadataDao(): SyncMetadataDao
+    abstract fun movieCategoryHydrationDao(): MovieCategoryHydrationDao
 
     companion object {
         /**
@@ -1142,6 +1144,29 @@ abstract class StreamVaultDatabase : RoomDatabase() {
         val MIGRATION_22_23 = object : Migration(22, 23) {
             override fun migrate(database: SupportSQLiteDatabase) {
                 database.execSQL("ALTER TABLE channel_import_stage ADD COLUMN error_count INTEGER NOT NULL DEFAULT 0")
+            }
+        }
+
+        val MIGRATION_23_24 = object : Migration(23, 24) {
+            override fun migrate(database: SupportSQLiteDatabase) {
+                database.execSQL("ALTER TABLE providers ADD COLUMN xtream_fast_sync_enabled INTEGER NOT NULL DEFAULT 0")
+                database.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS movie_category_hydration (
+                        provider_id INTEGER NOT NULL,
+                        category_id INTEGER NOT NULL,
+                        last_hydrated_at INTEGER NOT NULL DEFAULT 0,
+                        item_count INTEGER NOT NULL DEFAULT 0,
+                        last_status TEXT NOT NULL DEFAULT 'IDLE',
+                        last_error TEXT,
+                        PRIMARY KEY(provider_id, category_id),
+                        FOREIGN KEY(provider_id) REFERENCES providers(id) ON DELETE CASCADE
+                    )
+                    """.trimIndent()
+                )
+                database.execSQL(
+                    "CREATE INDEX IF NOT EXISTS index_movie_category_hydration_provider_id ON movie_category_hydration(provider_id)"
+                )
             }
         }
     }

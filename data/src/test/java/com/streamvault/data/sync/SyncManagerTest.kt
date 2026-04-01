@@ -302,6 +302,72 @@ class SyncManagerTest {
     }
 
     @Test
+    fun `sync_xtream_fast_sync_only_fetches_movie_categories`() = runTest {
+        val provider = sampleProvider(ProviderType.XTREAM_CODES).copy(xtreamFastSyncEnabled = true)
+        val mgr = buildManager(providerType = ProviderType.XTREAM_CODES, providerEntity = provider)
+        val now = System.currentTimeMillis()
+        syncMetadataRepo.updateMetadata(
+            SyncMetadata(
+                providerId = 1L,
+                lastLiveSync = now,
+                lastSeriesSync = now,
+                lastEpgSync = now
+            )
+        )
+        xtreamBackend.respond(
+            action = "get_vod_categories",
+            body = """
+                [
+                  {"category_id":"42","category_name":"Action"}
+                ]
+            """.trimIndent()
+        )
+        org.mockito.kotlin.whenever(movieDao.getCount(1L)).thenReturn(flowOf(0))
+
+        val result = mgr.sync(1L, force = false)
+        advanceUntilIdle()
+
+        assertThat(result.isSuccess).isTrue()
+        assertThat(xtreamBackend.requestedActions).contains("get_vod_categories")
+        assertThat(xtreamBackend.requestedActions).doesNotContain("get_vod_streams")
+        verify(catalogSyncDao, atLeastOnce()).insertCategoryStages(any())
+    }
+
+    @Test
+    fun `sync_xtream_movie_failure_does_not_block_series_sync`() = runTest {
+        val mgr = buildManager(providerType = ProviderType.XTREAM_CODES)
+        val now = System.currentTimeMillis()
+        syncMetadataRepo.updateMetadata(
+            SyncMetadata(
+                providerId = 1L,
+                lastLiveSync = now,
+                lastEpgSync = now
+            )
+        )
+        org.mockito.kotlin.whenever(movieDao.getCount(1L)).thenReturn(flowOf(0))
+        xtreamBackend.respond(action = "get_series_categories", body = """[{"category_id":"9","category_name":"Drama"}]""")
+        xtreamBackend.respond(
+            action = "get_series",
+            body = """
+                [
+                  {
+                    "series_id": 301,
+                    "name": "Series One",
+                    "category_id": "9",
+                    "cover": "https://example.com/cover.jpg"
+                  }
+                ]
+            """.trimIndent()
+        )
+
+        val result = mgr.sync(1L, force = false)
+        advanceUntilIdle()
+
+        assertThat(result.isSuccess).isTrue()
+        assertThat(xtreamBackend.requestedActions).contains("get_series_categories")
+    }
+
+    @Test
     fun `sync_m3u_fileImport_batchesAndDiscoversEpg`() = runTest {
         val playlist = tempFolder.newFile("playlist.m3u")
         playlist.writeText(buildString {

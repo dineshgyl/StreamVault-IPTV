@@ -36,6 +36,7 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewModelScope
+import com.streamvault.app.R
 import com.streamvault.app.MainActivity
 import com.streamvault.app.navigation.Routes
 import com.streamvault.app.ui.theme.ErrorColor
@@ -151,11 +152,11 @@ private fun TvInputSetupScreen(
             ) {
                 Text(
                     text = when (uiState.status) {
-                        TvInputSetupStatus.SCANNING -> "Scanning StreamVault channels"
-                        TvInputSetupStatus.SUCCESS -> "Live TV is ready"
-                        TvInputSetupStatus.NO_PROVIDER -> "No IPTV provider configured"
-                        TvInputSetupStatus.ERROR -> "Auto scan failed"
-                        TvInputSetupStatus.IDLE -> "Preparing Live TV integration"
+                        TvInputSetupStatus.SCANNING -> androidx.compose.ui.res.stringResource(R.string.tv_input_setup_scanning_title)
+                        TvInputSetupStatus.SUCCESS -> androidx.compose.ui.res.stringResource(R.string.tv_input_setup_success_title)
+                        TvInputSetupStatus.NO_PROVIDER -> androidx.compose.ui.res.stringResource(R.string.tv_input_setup_no_provider_title)
+                        TvInputSetupStatus.ERROR -> androidx.compose.ui.res.stringResource(R.string.tv_input_setup_error_title)
+                        TvInputSetupStatus.IDLE -> androidx.compose.ui.res.stringResource(R.string.tv_input_setup_idle_title)
                     },
                     style = MaterialTheme.typography.headlineSmall,
                     color = OnBackground,
@@ -165,11 +166,11 @@ private fun TvInputSetupScreen(
 
                 Text(
                     text = when (uiState.status) {
-                        TvInputSetupStatus.SCANNING -> "StreamVault is syncing your active provider into Android TV Live TV."
-                        TvInputSetupStatus.SUCCESS -> uiState.message ?: "Your channels were synced successfully."
-                        TvInputSetupStatus.NO_PROVIDER -> "Add at least one IPTV provider in StreamVault, then return here to scan channels into Android TV Live TV."
-                        TvInputSetupStatus.ERROR -> uiState.message ?: "The TV input sync did not complete."
-                        TvInputSetupStatus.IDLE -> "Please wait."
+                        TvInputSetupStatus.SCANNING -> androidx.compose.ui.res.stringResource(R.string.tv_input_setup_scanning_body)
+                        TvInputSetupStatus.SUCCESS -> uiState.message ?: androidx.compose.ui.res.stringResource(R.string.tv_input_setup_success_body)
+                        TvInputSetupStatus.NO_PROVIDER -> androidx.compose.ui.res.stringResource(R.string.tv_input_setup_no_provider_body)
+                        TvInputSetupStatus.ERROR -> uiState.message ?: androidx.compose.ui.res.stringResource(R.string.tv_input_setup_error_body)
+                        TvInputSetupStatus.IDLE -> androidx.compose.ui.res.stringResource(R.string.tv_input_setup_idle_body)
                     },
                     style = MaterialTheme.typography.bodyLarge,
                     color = OnSurfaceDim,
@@ -182,7 +183,10 @@ private fun TvInputSetupScreen(
 
                 if (uiState.providerName != null && uiState.status != TvInputSetupStatus.NO_PROVIDER) {
                     Text(
-                        text = "Source: ${uiState.providerName}",
+                        text = androidx.compose.ui.res.stringResource(
+                            R.string.tv_input_setup_source_format,
+                            uiState.providerName
+                        ),
                         style = MaterialTheme.typography.bodyMedium,
                         color = Primary
                     )
@@ -193,13 +197,13 @@ private fun TvInputSetupScreen(
                 when (uiState.status) {
                     TvInputSetupStatus.NO_PROVIDER -> {
                         Button(onClick = onOpenProviderSetup) {
-                            Text("Open StreamVault Setup")
+                            Text(androidx.compose.ui.res.stringResource(R.string.tv_input_setup_open_setup))
                         }
                         Button(onClick = onRetry) {
-                            Text("Try Auto Scan Again")
+                            Text(androidx.compose.ui.res.stringResource(R.string.tv_input_setup_try_scan_again))
                         }
                         Button(onClick = onCancel) {
-                            Text("Cancel")
+                            Text(androidx.compose.ui.res.stringResource(R.string.settings_cancel))
                         }
                     }
                     TvInputSetupStatus.ERROR -> {
@@ -210,15 +214,15 @@ private fun TvInputSetupScreen(
                             textAlign = TextAlign.Center
                         )
                         Button(onClick = onRetry) {
-                            Text("Retry Auto Scan")
+                            Text(androidx.compose.ui.res.stringResource(R.string.tv_input_setup_retry_scan))
                         }
                         Button(onClick = onCancel) {
-                            Text("Cancel")
+                            Text(androidx.compose.ui.res.stringResource(R.string.settings_cancel))
                         }
                     }
                     TvInputSetupStatus.SUCCESS -> {
                         Text(
-                            text = "Android TV Live TV can now open your StreamVault channels.",
+                            text = androidx.compose.ui.res.stringResource(R.string.tv_input_setup_success_hint),
                             style = MaterialTheme.typography.bodySmall,
                             color = OnSurfaceDim,
                             textAlign = TextAlign.Center

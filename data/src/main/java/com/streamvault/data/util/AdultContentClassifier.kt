@@ -36,6 +36,8 @@ object AdultContentClassifier {
         "lilkbar",
         // Turkish
         "yetiskin",
+        // Anime adult content
+        "hentai",
         // Common IPTV labels
         "for adults",
         "pour adultes",

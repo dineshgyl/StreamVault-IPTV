@@ -199,7 +199,9 @@ class Media3PlayerEngine @Inject constructor(
     }
 
     override fun seekBackward(ms: Long) {
-        exoPlayer?.seekTo((exoPlayer?.currentPosition ?: 0L - ms).coerceAtLeast(0L))
+        exoPlayer?.let { player ->
+            player.seekTo((player.currentPosition - ms).coerceAtLeast(0L))
+        }
     }
 
     override fun setDecoderMode(mode: DecoderMode) {

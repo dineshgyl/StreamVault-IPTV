@@ -52,6 +52,15 @@ enum class ProviderWarningAction {
     SERIES
 }
 
+enum class ProviderSyncSelection {
+    ALL,
+    FAST,
+    TV,
+    MOVIES,
+    SERIES,
+    EPG
+}
+
 private data class SettingsPreferenceSnapshot(
     val providers: List<Provider>,
     val activeProviderId: Long?,
@@ -71,6 +80,7 @@ private data class SettingsPreferenceSnapshot(
     val lastSpeedTestRecommendedHeight: Int?,
     val lastSpeedTestEstimated: Boolean,
     val isIncognitoMode: Boolean,
+    val useXtreamTextClassification: Boolean,
     val liveTvChannelMode: LiveTvChannelMode,
     val liveChannelNumberingMode: ChannelNumberingMode,
     val vodViewMode: VodViewMode
@@ -98,12 +108,13 @@ class SettingsViewModel @Inject constructor(
 
     private val _uiState = MutableStateFlow(SettingsUiState())
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
+    private val activeProviderIdFlow = providerRepository.getActiveProvider().map { it?.id }
 
     init {
         viewModelScope.launch {
             combine(
                 providerRepository.getProviders(),
-                preferencesRepository.lastActiveProviderId,
+                activeProviderIdFlow,
                 preferencesRepository.parentalControlLevel,
                 preferencesRepository.hasParentalPin
             ) { providers, activeId, level, hasParentalPin ->
@@ -126,6 +137,7 @@ class SettingsViewModel @Inject constructor(
                     lastSpeedTestRecommendedHeight = null,
                     lastSpeedTestEstimated = false,
                     isIncognitoMode = false,
+                    useXtreamTextClassification = true,
                     liveTvChannelMode = LiveTvChannelMode.COMPACT,
                     liveChannelNumberingMode = ChannelNumberingMode.GROUP,
                     vodViewMode = VodViewMode.MODERN
@@ -158,6 +170,8 @@ class SettingsViewModel @Inject constructor(
                 snapshot.copy(lastSpeedTestEstimated = lastSpeedTestEstimated)
             }.combine(preferencesRepository.isIncognitoMode) { snapshot, incognito ->
                 snapshot.copy(isIncognitoMode = incognito)
+            }.combine(preferencesRepository.useXtreamTextClassification) { snapshot, useTextClass ->
+                snapshot.copy(useXtreamTextClassification = useTextClass)
             }.combine(preferencesRepository.liveTvChannelMode) { snapshot, liveTvChannelMode ->
                 snapshot.copy(liveTvChannelMode = LiveTvChannelMode.fromStorage(liveTvChannelMode))
             }.combine(preferencesRepository.liveChannelNumberingMode) { snapshot, liveChannelNumberingMode ->
@@ -189,6 +203,7 @@ class SettingsViewModel @Inject constructor(
                             )
                         },
                         isIncognitoMode = snapshot.isIncognitoMode,
+                        useXtreamTextClassification = snapshot.useXtreamTextClassification,
                         liveTvChannelMode = snapshot.liveTvChannelMode,
                         liveChannelNumberingMode = snapshot.liveChannelNumberingMode,
                         vodViewMode = snapshot.vodViewMode
@@ -259,7 +274,7 @@ class SettingsViewModel @Inject constructor(
         }
 
         viewModelScope.launch {
-            preferencesRepository.lastActiveProviderId
+            activeProviderIdFlow
                 .flatMapLatest { providerId ->
                     if (providerId == null) {
                         flowOf(CategoryManagementSnapshot())
@@ -481,6 +496,13 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    fun toggleXtreamTextClassification() {
+        viewModelScope.launch {
+            val current = _uiState.value.useXtreamTextClassification
+            preferencesRepository.setUseXtreamTextClassification(!current)
+        }
+    }
+
     fun clearHistory() {
         viewModelScope.launch {
             _uiState.update { it.copy(isSyncing = true) }
@@ -512,11 +534,15 @@ class SettingsViewModel @Inject constructor(
         _uiState.update { it.copy(userMessage = null) }
     }
 
-    fun refreshProvider(providerId: Long) {
+    fun refreshProvider(providerId: Long, movieFastSyncOverride: Boolean? = null) {
         viewModelScope.launch {
             _uiState.update { it.copy(isSyncing = true) }
             val result = syncProvider(
-                SyncProviderCommand(providerId = providerId, force = true)
+                SyncProviderCommand(
+                    providerId = providerId,
+                    force = true,
+                    movieFastSyncOverride = movieFastSyncOverride
+                )
             )
             if (result !is SyncProviderResult.Error) {
                 tvInputChannelSyncManager.refreshTvInputCatalog()
@@ -541,6 +567,34 @@ class SettingsViewModel @Inject constructor(
                     }
                 )
             }
+        }
+    }
+
+    fun syncProviderSection(providerId: Long, selection: ProviderSyncSelection) {
+        viewModelScope.launch {
+            when (selection) {
+                ProviderSyncSelection.ALL -> refreshProvider(providerId)
+                ProviderSyncSelection.FAST -> refreshProvider(providerId, movieFastSyncOverride = true)
+                else -> runSectionSync(providerId, listOf(selection))
+            }
+        }
+    }
+
+    fun syncProviderCustom(providerId: Long, selections: Set<ProviderSyncSelection>) {
+        viewModelScope.launch {
+            val orderedSelections = listOf(
+                ProviderSyncSelection.TV,
+                ProviderSyncSelection.MOVIES,
+                ProviderSyncSelection.SERIES,
+                ProviderSyncSelection.EPG
+            ).filter { it in selections }
+            if (orderedSelections.isEmpty()) {
+                _uiState.update {
+                    it.copy(userMessage = appContext.getString(R.string.settings_sync_custom_required))
+                }
+                return@launch
+            }
+            runSectionSync(providerId, orderedSelections)
         }
     }
 
@@ -583,6 +637,55 @@ class SettingsViewModel @Inject constructor(
                     )
                 }
             }
+        }
+    }
+
+    private suspend fun runSectionSync(
+        providerId: Long,
+        selections: List<ProviderSyncSelection>
+    ) {
+        _uiState.update { it.copy(isSyncing = true) }
+        val failures = mutableListOf<String>()
+        val completed = mutableListOf<String>()
+
+        selections.forEach { selection ->
+            val section = when (selection) {
+                ProviderSyncSelection.TV -> SyncRepairSection.LIVE
+                ProviderSyncSelection.MOVIES -> SyncRepairSection.MOVIES
+                ProviderSyncSelection.SERIES -> SyncRepairSection.SERIES
+                ProviderSyncSelection.EPG -> SyncRepairSection.EPG
+                ProviderSyncSelection.ALL, ProviderSyncSelection.FAST -> null
+            } ?: return@forEach
+
+            when (val result = syncManager.retrySection(providerId, section)) {
+                is Result.Error -> failures += "${selection.label(appContext)}: ${result.message}"
+                else -> completed += selection.label(appContext)
+            }
+        }
+
+        if (completed.any { it == appContext.getString(R.string.settings_sync_option_all) || it == appContext.getString(R.string.settings_sync_option_tv) }) {
+            tvInputChannelSyncManager.refreshTvInputCatalog()
+        }
+
+        _uiState.update { state ->
+            state.copy(
+                isSyncing = false,
+                userMessage = when {
+                    failures.isEmpty() -> appContext.getString(
+                        R.string.settings_sync_sections_success,
+                        completed.joinToString()
+                    )
+                    completed.isEmpty() -> appContext.getString(
+                        R.string.settings_sync_sections_failed,
+                        failures.joinToString()
+                    )
+                    else -> appContext.getString(
+                        R.string.settings_sync_sections_partial,
+                        completed.joinToString(),
+                        failures.joinToString()
+                    )
+                }
+            )
         }
     }
 
@@ -694,7 +797,13 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             val result = recordingManager.stopRecording(recordingId)
             _uiState.update {
-                it.copy(userMessage = if (result is Result.Error) "Stop failed: ${result.message}" else "Recording stopped")
+                it.copy(
+                    userMessage = if (result is Result.Error) {
+                        appContext.getString(R.string.settings_recording_stop_failed, result.message)
+                    } else {
+                        appContext.getString(R.string.settings_recording_stopped)
+                    }
+                )
             }
         }
     }
@@ -703,7 +812,13 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             val result = recordingManager.cancelRecording(recordingId)
             _uiState.update {
-                it.copy(userMessage = if (result is Result.Error) "Cancel failed: ${result.message}" else "Recording cancelled")
+                it.copy(
+                    userMessage = if (result is Result.Error) {
+                        appContext.getString(R.string.settings_recording_cancel_failed, result.message)
+                    } else {
+                        appContext.getString(R.string.settings_recording_cancelled)
+                    }
+                )
             }
         }
     }
@@ -712,7 +827,13 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch {
             val result = recordingManager.deleteRecording(recordingId)
             _uiState.update {
-                it.copy(userMessage = if (result is Result.Error) "Delete failed: ${result.message}" else "Recording deleted")
+                it.copy(
+                    userMessage = if (result is Result.Error) {
+                        appContext.getString(R.string.settings_recording_delete_failed, result.message)
+                    } else {
+                        appContext.getString(R.string.settings_recording_deleted)
+                    }
+                )
             }
         }
     }
@@ -721,16 +842,16 @@ class SettingsViewModel @Inject constructor(
         return when (provider.type) {
             ProviderType.XTREAM_CODES -> {
                 if (provider.epgUrl.isNotBlank()) {
-                    "Xtream source with XMLTV guide support and on-demand guide fallback. Catch-up is available when the provider exposes replay streams."
+                    appContext.getString(R.string.settings_capability_xtream_with_epg)
                 } else {
-                    "Xtream source with on-demand guide fallback. Catch-up depends on provider replay support."
+                    appContext.getString(R.string.settings_capability_xtream_without_epg)
                 }
             }
             ProviderType.M3U -> {
                 if (provider.epgUrl.isNotBlank()) {
-                    "M3U source with XMLTV guide. Archive support depends on provider stream templates."
+                    appContext.getString(R.string.settings_capability_m3u_with_epg)
                 } else {
-                    "M3U source without guide URL. Guide and archive coverage may be limited."
+                    appContext.getString(R.string.settings_capability_m3u_without_epg)
                 }
             }
         }
@@ -785,12 +906,22 @@ data class SettingsUiState(
     val recordingItems: List<RecordingItem> = emptyList(),
     val recordingStorageState: RecordingStorageState = RecordingStorageState(),
     val isIncognitoMode: Boolean = false,
+    val useXtreamTextClassification: Boolean = true,
     val liveTvChannelMode: LiveTvChannelMode = LiveTvChannelMode.COMFORTABLE,
     val liveChannelNumberingMode: ChannelNumberingMode = ChannelNumberingMode.GROUP,
     val vodViewMode: VodViewMode = VodViewMode.MODERN,
     val categorySortModes: Map<ContentType, CategorySortMode> = emptyMap(),
     val hiddenCategories: List<Category> = emptyList()
 )
+
+private fun ProviderSyncSelection.label(application: Application): String = when (this) {
+    ProviderSyncSelection.ALL -> application.getString(R.string.settings_sync_option_all)
+    ProviderSyncSelection.FAST -> application.getString(R.string.settings_sync_option_fast)
+    ProviderSyncSelection.TV -> application.getString(R.string.settings_sync_option_tv)
+    ProviderSyncSelection.MOVIES -> application.getString(R.string.settings_sync_option_movies)
+    ProviderSyncSelection.SERIES -> application.getString(R.string.settings_sync_option_series)
+    ProviderSyncSelection.EPG -> application.getString(R.string.settings_sync_option_epg)
+}
 
 data class InternetSpeedTestUiModel(
     val megabitsPerSecond: Double,
