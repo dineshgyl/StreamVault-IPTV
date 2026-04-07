@@ -29,15 +29,7 @@ It is designed for large playlists, remote-friendly browsing, fast provider swit
 
 ## Screenshots
 
-Placeholder images are included in `docs/images/` so the repository renders cleanly until final screenshots are captured.
-
-![Dashboard placeholder](docs/images/dashboard.svg)
-![Live TV placeholder](docs/images/live-tv.svg)
-![Player placeholder](docs/images/player.svg)
-![Movies placeholder](docs/images/movies.svg)
-![Series placeholder](docs/images/series.svg)
-![Search placeholder](docs/images/search.svg)
-![Multiview placeholder](docs/images/multiview.svg)
+Add your own screenshots to `docs/images/` and update this section with the final image links when they are ready.
 
 ## Download
 

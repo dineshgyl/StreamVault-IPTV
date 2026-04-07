@@ -1,8 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" role="img" aria-label="Live TV placeholder">
-  <rect width="1280" height="720" fill="#07111B"/>
-  <rect x="54" y="54" width="1172" height="612" rx="30" fill="#0F1B29" stroke="#264C6D95"/>
-  <text x="96" y="132" fill="#F5F7FB" font-family="Segoe UI, Arial, sans-serif" font-size="44" font-weight="700">Live TV Placeholder</text>
-  <rect x="96" y="176" width="250" height="430" rx="22" fill="#162338"/>
-  <rect x="380" y="176" width="748" height="320" rx="28" fill="#1D2E46"/>
-  <rect x="380" y="522" width="748" height="84" rx="18" fill="#162338"/>
-</svg>

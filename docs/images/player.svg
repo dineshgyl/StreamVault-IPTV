@@ -1,8 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" role="img" aria-label="Player placeholder">
-  <rect width="1280" height="720" fill="#07111B"/>
-  <rect x="72" y="72" width="1136" height="576" rx="36" fill="#162338"/>
-  <polygon points="610,280 610,440 742,360" fill="#F5F7FB" opacity="0.9"/>
-  <text x="96" y="128" fill="#F5F7FB" font-family="Segoe UI, Arial, sans-serif" font-size="44" font-weight="700">Player Placeholder</text>
-  <rect x="120" y="580" width="1040" height="12" rx="6" fill="#264C6D95"/>
-  <rect x="120" y="580" width="430" height="12" rx="6" fill="#69A8FF"/>
-</svg>

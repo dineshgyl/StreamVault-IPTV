@@ -1,9 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" role="img" aria-label="Series placeholder">
-  <rect width="1280" height="720" fill="#07111B"/>
-  <text x="96" y="128" fill="#F5F7FB" font-family="Segoe UI, Arial, sans-serif" font-size="44" font-weight="700">Series Placeholder</text>
-  <rect x="92" y="180" width="260" height="400" rx="26" fill="#1D2E46"/>
-  <rect x="388" y="180" width="800" height="88" rx="20" fill="#162338"/>
-  <rect x="388" y="292" width="800" height="88" rx="20" fill="#162338"/>
-  <rect x="388" y="404" width="800" height="88" rx="20" fill="#162338"/>
-  <rect x="388" y="516" width="800" height="64" rx="16" fill="#223754"/>
-</svg>

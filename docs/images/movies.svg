@@ -1,9 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="720" viewBox="0 0 1280 720" role="img" aria-label="Movies placeholder">
-  <rect width="1280" height="720" fill="#07111B"/>
-  <text x="96" y="128" fill="#F5F7FB" font-family="Segoe UI, Arial, sans-serif" font-size="44" font-weight="700">Movies Placeholder</text>
-  <rect x="92" y="176" width="220" height="360" rx="24" fill="#1D2E46"/>
-  <rect x="348" y="176" width="220" height="360" rx="24" fill="#1D2E46"/>
-  <rect x="604" y="176" width="220" height="360" rx="24" fill="#1D2E46"/>
-  <rect x="860" y="176" width="220" height="360" rx="24" fill="#1D2E46"/>
-  <rect x="92" y="570" width="988" height="24" rx="12" fill="#162338"/>
-</svg>
