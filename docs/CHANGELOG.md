@@ -12,6 +12,10 @@ All notable product changes are recorded in this document.
 - Fixed in-app update downloads that could remain stuck on `Downloading...` by improving download tracking and completion handling.
 - Fixed M3U catch-up detection and replay URL expansion so archive-capable playlists using `catchup-source`, `timeshift`, and common replay placeholders are wired correctly.
 - Fixed catch-up and replay handling across M3U and Xtream providers with added regression coverage for archive metadata parsing and replay URL building.
+- Fixed player startup stability so normal playback no longer eagerly creates split-screen state that could crash channel and episode opens before playback begins.
+- Fixed shared player initialization to defer several constructor-time playback state subscriptions, reducing intermittent crashes when opening Live TV and series episodes.
+- Fixed Xtream playback startup handling so provider-auth failures such as `401` and `403` are surfaced as player errors/notices instead of continuing into a broken playback open path.
+- Fixed provider setup so Xtream-backed playlist URLs such as `get.php?...type=m3u` and `get.php?...type=m3u_plus` are recognized automatically and imported through the Xtream parser instead of the plain M3U path.
 
 ## 1.0.3 - 09/04/2026
 

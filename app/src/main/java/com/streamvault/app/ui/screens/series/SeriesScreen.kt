@@ -82,10 +82,13 @@ import com.streamvault.app.ui.components.shell.VodClassicContentHeader
 import com.streamvault.app.ui.components.shell.VodClassicSplitLayout
 import com.streamvault.app.ui.components.shell.VodHeroStrip
 import com.streamvault.app.ui.components.shell.VodSectionHeader
+import com.streamvault.app.ui.design.FocusRestoreHost
+import com.streamvault.app.ui.design.requestFocusSafely
 import com.streamvault.app.ui.model.VodViewMode
 import com.streamvault.app.ui.screens.vod.HandleVodUserMessage
 import com.streamvault.app.ui.screens.vod.ProtectedVodPinDialog
 import com.streamvault.app.ui.screens.vod.VodBrowseDefaults
+import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -97,6 +100,7 @@ fun SeriesScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
+    val initialContentFocusRequester = remember { FocusRequester() }
     var showPinDialog by remember { mutableStateOf(false) }
     var pinError by remember { mutableStateOf<String?>(null) }
     var pendingSeriesId by remember { mutableStateOf<Long?>(null) }
@@ -136,6 +140,13 @@ fun SeriesScreen(
     )
 
     Box(modifier = Modifier.fillMaxSize()) {
+        FocusRestoreHost(
+            enabled = !uiState.isLoading && uiState.errorMessage == null,
+            onRestore = {
+                delay(100)
+                initialContentFocusRequester.requestFocusSafely(tag = "SeriesScreen", target = "Initial series content")
+            }
+        ) {
         AppScreenScaffold(
             currentRoute = currentRoute,
             onNavigate = onNavigate,
@@ -222,8 +233,10 @@ fun SeriesScreen(
                 },
                 onLoadMore = viewModel::loadMoreSelectedCategory,
                 onLoadMorePreviewRows = viewModel::loadMorePreviewRows,
-                onDismissReorder = viewModel::exitCategoryReorderMode
+                onDismissReorder = viewModel::exitCategoryReorderMode,
+                initialFocusRequester = initialContentFocusRequester
             )
+        }
         }
         }
         SnackbarHost(
@@ -310,7 +323,8 @@ private fun SeriesVodContent(
     onOpenFresh: () -> Unit,
     onLoadMore: () -> Unit,
     onLoadMorePreviewRows: () -> Unit,
-    onDismissReorder: () -> Unit
+    onDismissReorder: () -> Unit,
+    initialFocusRequester: FocusRequester
 ) {
     val screenWidth = LocalConfiguration.current.screenWidthDp.dp
     val isTelevisionDevice = rememberIsTelevisionDevice()
@@ -375,6 +389,16 @@ private fun SeriesVodContent(
             category == null || !isCategoryHidden(category)
         }
     }
+    val catEntries = uiState.seriesByCategory.entries
+        .filter { (name, items) ->
+            name != uiState.favoriteCategoryName && name in visibleCategoryNames && items.isNotEmpty()
+        }.toList()
+    val fallbackSeriesId = if (heroSeries == null) {
+        favoriteSeries.firstOrNull()?.id
+            ?: freshSeries.firstOrNull()?.id
+            ?: topRatedSeries.firstOrNull()?.id
+            ?: catEntries.firstOrNull()?.value?.firstOrNull()?.id
+    } else null
     val categoryOptions = remember(visibleCategoryNames, uiState.categoryCounts, categoryByName, uiState.parentalControlLevel, uiState.unlockedCategoryIds) {
         visibleCategoryNames.map { name ->
             val matchedCategory = categoryByName[name]
@@ -421,7 +445,8 @@ private fun SeriesVodContent(
             onOpenContinueWatching = onOpenContinueWatching,
             onOpenFresh = onOpenFresh,
             onLoadMore = onLoadMore,
-            onDismissReorder = onDismissReorder
+            onDismissReorder = onDismissReorder,
+            initialFocusRequester = initialFocusRequester
         )
         return
     }
@@ -443,7 +468,9 @@ private fun SeriesVodContent(
                             val isLocked = isSeriesLocked(heroSeries)
                             if (isLocked) onProtectedSeriesClick(heroSeries.id) else onSeriesClick(heroSeries.id)
                         },
-                        modifier = Modifier.padding(top = 8.dp, bottom = 6.dp)
+                        modifier = Modifier
+                            .padding(top = 8.dp, bottom = 6.dp)
+                            .focusRequester(initialFocusRequester)
                     )
             }
             }
@@ -573,10 +600,6 @@ private fun SeriesVodContent(
                 }
             }
             }
-            val catEntries = uiState.seriesByCategory.entries
-                .filter { (name, items) ->
-                    name != uiState.favoriteCategoryName && name in visibleCategoryNames && items.isNotEmpty()
-                }.toList()
             items(catEntries, key = { it.key }) { entry ->
                 val categoryName = entry.key
                 val seriesList = entry.value
@@ -595,7 +618,8 @@ private fun SeriesVodContent(
                         series = series,
                         isLocked = isLocked,
                         onClick = { if (isLocked) onProtectedSeriesClick(series.id) else onSeriesClick(series.id) },
-                        onLongClick = { onShowDialog(series) }
+                        onLongClick = { onShowDialog(series) },
+                        modifier = if (series.id == fallbackSeriesId) Modifier.focusRequester(initialFocusRequester) else Modifier
                     )
                 }
             }
@@ -629,6 +653,7 @@ private fun SeriesVodContent(
     var draggingSeries by remember { mutableStateOf<Series?>(null) }
     var showBrowseOptions by rememberSaveable(uiState.selectedCategory) { mutableStateOf(false) }
     var showSearchBar by rememberSaveable(uiState.selectedCategory) { mutableStateOf(searchQuery.isNotBlank()) }
+    val initialGridSeriesId = filteredGridSeries.firstOrNull()?.id
 
     if (showBrowseOptions) {
         VodBrowseOptionsDialog(
@@ -730,6 +755,7 @@ private fun SeriesVodContent(
                         onValueChange = onSearchQueryChange,
                         placeholder = stringResource(R.string.series_search_placeholder),
                         onSearch = {},
+                        focusRequester = initialFocusRequester,
                         modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
                     )
                 }
@@ -767,7 +793,8 @@ private fun SeriesVodContent(
                     isDragging = isDraggingThis,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .aspectRatio(2f / 3f),
+                        .aspectRatio(2f / 3f)
+                        .then(if (!showSearchBar && series.id == initialGridSeriesId) Modifier.focusRequester(initialFocusRequester) else Modifier),
                     onClick = {
                         if (uiState.isReorderMode) {
                             draggingSeries = if (isDraggingThis) null else series
@@ -819,7 +846,8 @@ private fun SeriesVodClassicContent(
     onOpenContinueWatching: () -> Unit,
     onOpenFresh: () -> Unit,
     onLoadMore: () -> Unit,
-    onDismissReorder: () -> Unit
+    onDismissReorder: () -> Unit,
+    initialFocusRequester: FocusRequester
 ) {
     val allLabel = stringResource(R.string.vod_classic_all)
     val continueLabel = stringResource(R.string.vod_classic_continue_watching)
@@ -876,6 +904,7 @@ private fun SeriesVodClassicContent(
         if (uiState.isReorderMode) uiState.filteredSeries else baseSeries
     }
     var draggingSeries by remember { mutableStateOf<Series?>(null) }
+    val initialGridSeriesId = filteredGridSeries.firstOrNull()?.id
 
     LaunchedEffect(uiState.vodViewMode, uiState.selectedCategory, uiState.isReorderMode) {
         if (uiState.vodViewMode == VodViewMode.CLASSIC && uiState.selectedCategory == null && !uiState.isReorderMode) {
@@ -1035,6 +1064,7 @@ private fun SeriesVodClassicContent(
                     onValueChange = onSearchQueryChange,
                     placeholder = stringResource(R.string.series_search_placeholder),
                     onSearch = {},
+                    focusRequester = initialFocusRequester,
                     modifier = Modifier.fillMaxWidth()
                 )
             }
@@ -1086,7 +1116,8 @@ private fun SeriesVodClassicContent(
                             isDragging = isDraggingThis,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .aspectRatio(2f / 3f),
+                                .aspectRatio(2f / 3f)
+                                .then(if (!showSearchBar && series.id == initialGridSeriesId) Modifier.focusRequester(initialFocusRequester) else Modifier),
                             onClick = {
                                 if (uiState.isReorderMode) {
                                     draggingSeries = if (isDraggingThis) null else series

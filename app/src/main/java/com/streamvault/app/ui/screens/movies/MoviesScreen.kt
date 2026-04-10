@@ -81,10 +81,13 @@ import com.streamvault.app.ui.components.shell.VodClassicContentHeader
 import com.streamvault.app.ui.components.shell.VodClassicSplitLayout
 import com.streamvault.app.ui.components.shell.VodHeroStrip
 import com.streamvault.app.ui.components.shell.VodSectionHeader
+import com.streamvault.app.ui.design.FocusRestoreHost
+import com.streamvault.app.ui.design.requestFocusSafely
 import com.streamvault.app.ui.model.VodViewMode
 import com.streamvault.app.ui.screens.vod.HandleVodUserMessage
 import com.streamvault.app.ui.screens.vod.ProtectedVodPinDialog
 import com.streamvault.app.ui.screens.vod.VodBrowseDefaults
+import kotlinx.coroutines.delay
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -96,6 +99,7 @@ fun MoviesScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
+    val initialContentFocusRequester = remember { FocusRequester() }
     var showPinDialog by remember { mutableStateOf(false) }
     var pinError by remember { mutableStateOf<String?>(null) }
     var pendingMovie by remember { mutableStateOf<Movie?>(null) }
@@ -135,6 +139,13 @@ fun MoviesScreen(
     )
 
     Box(modifier = Modifier.fillMaxSize()) {
+        FocusRestoreHost(
+            enabled = !uiState.isLoading && uiState.errorMessage == null,
+            onRestore = {
+                delay(100)
+                initialContentFocusRequester.requestFocusSafely(tag = "MoviesScreen", target = "Initial movies content")
+            }
+        ) {
         AppScreenScaffold(
             currentRoute = currentRoute,
             onNavigate = onNavigate,
@@ -221,8 +232,10 @@ fun MoviesScreen(
                 },
                 onLoadMore = viewModel::loadMoreSelectedCategory,
                 onLoadMorePreviewRows = viewModel::loadMorePreviewRows,
-                onDismissReorder = viewModel::exitCategoryReorderMode
+                onDismissReorder = viewModel::exitCategoryReorderMode,
+                initialFocusRequester = initialContentFocusRequester
             )
+        }
         }
         }
         SnackbarHost(
@@ -311,7 +324,8 @@ private fun MoviesVodContent(
     onOpenFresh: () -> Unit,
     onLoadMore: () -> Unit,
     onLoadMorePreviewRows: () -> Unit,
-    onDismissReorder: () -> Unit
+    onDismissReorder: () -> Unit,
+    initialFocusRequester: FocusRequester
 ) {
     val screenWidth = LocalConfiguration.current.screenWidthDp.dp
     val isTelevisionDevice = rememberIsTelevisionDevice()
@@ -376,6 +390,16 @@ private fun MoviesVodContent(
             category == null || !isCategoryHidden(category)
         }
     }
+    val catEntries = uiState.moviesByCategory.entries
+        .filter { (name, items) ->
+            name != uiState.favoriteCategoryName && name in visibleCategoryNames && items.isNotEmpty()
+        }.toList()
+    val fallbackMovieId = if (heroMovie == null) {
+        favoriteMovies.firstOrNull()?.id
+            ?: freshMovies.firstOrNull()?.id
+            ?: topRatedMovies.firstOrNull()?.id
+            ?: catEntries.firstOrNull()?.value?.firstOrNull()?.id
+    } else null
     val categoryOptions = remember(visibleCategoryNames, uiState.categoryCounts, categoryByName, uiState.parentalControlLevel, uiState.unlockedCategoryIds) {
         visibleCategoryNames.map { name ->
             val matchedCategory = categoryByName[name]
@@ -422,7 +446,8 @@ private fun MoviesVodContent(
             onOpenContinueWatching = onOpenContinueWatching,
             onOpenFresh = onOpenFresh,
             onLoadMore = onLoadMore,
-            onDismissReorder = onDismissReorder
+            onDismissReorder = onDismissReorder,
+            initialFocusRequester = initialFocusRequester
         )
         return
     }
@@ -444,7 +469,9 @@ private fun MoviesVodContent(
                             val isLocked = isMovieLocked(heroMovie)
                             if (isLocked) onProtectedMovieClick(heroMovie) else onMovieClick(heroMovie)
                         },
-                        modifier = Modifier.padding(top = 8.dp, bottom = 6.dp)
+                        modifier = Modifier
+                            .padding(top = 8.dp, bottom = 6.dp)
+                            .focusRequester(initialFocusRequester)
                     )
             }
             }
@@ -586,10 +613,6 @@ private fun MoviesVodContent(
                 }
             }
             }
-            val catEntries = uiState.moviesByCategory.entries
-                .filter { (name, items) ->
-                    name != uiState.favoriteCategoryName && name in visibleCategoryNames && items.isNotEmpty()
-                }.toList()
             items(catEntries, key = { it.key }) { entry ->
                 val categoryName = entry.key
                 val movies = entry.value
@@ -609,6 +632,8 @@ private fun MoviesVodContent(
                         isLocked = isLocked,
                         onClick = { if (isLocked) onProtectedMovieClick(movie) else onMovieClick(movie) },
                         onLongClick = { onShowDialog(movie) }
+                        ,
+                        modifier = if (movie.id == fallbackMovieId) Modifier.focusRequester(initialFocusRequester) else Modifier
                     )
                 }
             }
@@ -642,6 +667,7 @@ private fun MoviesVodContent(
     var draggingMovie by remember { mutableStateOf<Movie?>(null) }
     var showBrowseOptions by rememberSaveable(uiState.selectedCategory) { mutableStateOf(false) }
     var showSearchBar by rememberSaveable(uiState.selectedCategory) { mutableStateOf(searchQuery.isNotBlank()) }
+    val initialGridMovieId = filteredGridMovies.firstOrNull()?.id
 
     if (showBrowseOptions) {
         VodBrowseOptionsDialog(
@@ -743,6 +769,7 @@ private fun MoviesVodContent(
                         onValueChange = onSearchQueryChange,
                         placeholder = stringResource(R.string.movies_search_placeholder),
                         onSearch = {},
+                        focusRequester = initialFocusRequester,
                         modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp)
                     )
                 }
@@ -780,7 +807,8 @@ private fun MoviesVodContent(
                     isDragging = isDraggingThis,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .aspectRatio(2f / 3f),
+                        .aspectRatio(2f / 3f)
+                        .then(if (!showSearchBar && movie.id == initialGridMovieId) Modifier.focusRequester(initialFocusRequester) else Modifier),
                     onClick = {
                         if (uiState.isReorderMode) {
                             draggingMovie = if (isDraggingThis) null else movie
@@ -832,7 +860,8 @@ private fun MoviesVodClassicContent(
     onOpenContinueWatching: () -> Unit,
     onOpenFresh: () -> Unit,
     onLoadMore: () -> Unit,
-    onDismissReorder: () -> Unit
+    onDismissReorder: () -> Unit,
+    initialFocusRequester: FocusRequester
 ) {
     val allLabel = stringResource(R.string.vod_classic_all)
     val continueLabel = stringResource(R.string.vod_classic_continue_watching)
@@ -889,6 +918,7 @@ private fun MoviesVodClassicContent(
         if (uiState.isReorderMode) uiState.filteredMovies else baseMovies
     }
     var draggingMovie by remember { mutableStateOf<Movie?>(null) }
+    val initialGridMovieId = filteredGridMovies.firstOrNull()?.id
 
     LaunchedEffect(uiState.vodViewMode, uiState.selectedCategory, uiState.isReorderMode) {
         if (uiState.vodViewMode == VodViewMode.CLASSIC && uiState.selectedCategory == null && !uiState.isReorderMode) {
@@ -1048,6 +1078,7 @@ private fun MoviesVodClassicContent(
                     onValueChange = onSearchQueryChange,
                     placeholder = stringResource(R.string.movies_search_placeholder),
                     onSearch = {},
+                    focusRequester = initialFocusRequester,
                     modifier = Modifier.fillMaxWidth()
                 )
             }
@@ -1099,7 +1130,8 @@ private fun MoviesVodClassicContent(
                             isDragging = isDraggingThis,
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .aspectRatio(2f / 3f),
+                                .aspectRatio(2f / 3f)
+                                .then(if (!showSearchBar && movie.id == initialGridMovieId) Modifier.focusRequester(initialFocusRequester) else Modifier),
                             onClick = {
                                 if (uiState.isReorderMode) {
                                     draggingMovie = if (isDraggingThis) null else movie

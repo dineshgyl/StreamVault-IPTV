@@ -29,15 +29,12 @@ import com.streamvault.domain.model.ContentType
 import com.streamvault.domain.model.DecoderMode
 import com.streamvault.domain.model.ActiveLiveSource
 import com.streamvault.domain.model.CombinedM3uProfile
-import com.streamvault.domain.model.Provider
 import com.streamvault.domain.model.ProviderStatus
-import com.streamvault.domain.model.ProviderType
 import com.streamvault.domain.model.RecordingItem
 import com.streamvault.domain.model.RecordingStorageConfig
 import com.streamvault.domain.model.RecordingStorageState
 import com.streamvault.domain.model.EpgResolutionSummary
 import com.streamvault.domain.model.Result
-import com.streamvault.domain.model.VodSyncMode
 import com.streamvault.domain.usecase.ExportBackup
 import com.streamvault.domain.usecase.ExportBackupCommand
 import com.streamvault.domain.usecase.ExportBackupResult
@@ -59,78 +56,6 @@ import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import kotlin.math.max
 import javax.inject.Inject
-
-enum class ProviderWarningAction {
-    EPG,
-    MOVIES,
-    SERIES
-}
-
-enum class ProviderSyncSelection {
-    ALL,
-    FAST,
-    TV,
-    MOVIES,
-    SERIES,
-    EPG
-}
-
-private data class SettingsPreferenceSnapshot(
-    val providers: List<Provider>,
-    val activeProviderId: Long?,
-    val parentalControlLevel: Int,
-    val hasParentalPin: Boolean,
-    val appLanguage: String,
-    val preferredAudioLanguage: String,
-    val playerMediaSessionEnabled: Boolean,
-    val playerDecoderMode: DecoderMode,
-    val playerPlaybackSpeed: Float,
-    val playerControlsTimeoutSeconds: Int,
-    val playerLiveOverlayTimeoutSeconds: Int,
-    val playerNoticeTimeoutSeconds: Int,
-    val playerDiagnosticsTimeoutSeconds: Int,
-    val subtitleTextScale: Float,
-    val subtitleTextColor: Int,
-    val subtitleBackgroundColor: Int,
-    val wifiMaxVideoHeight: Int?,
-    val ethernetMaxVideoHeight: Int?,
-    val lastSpeedTestMegabits: Double?,
-    val lastSpeedTestTimestamp: Long?,
-    val lastSpeedTestTransport: String?,
-    val lastSpeedTestRecommendedHeight: Int?,
-    val lastSpeedTestEstimated: Boolean,
-    val isIncognitoMode: Boolean,
-    val useXtreamTextClassification: Boolean,
-    val liveTvChannelMode: LiveTvChannelMode,
-    val showLiveSourceSwitcher: Boolean,
-    val liveTvCategoryFilters: List<String>,
-    val liveTvQuickFilterVisibilityMode: LiveTvQuickFilterVisibilityMode,
-    val liveChannelNumberingMode: ChannelNumberingMode,
-    val vodViewMode: VodViewMode,
-    val preventStandbyDuringPlayback: Boolean,
-    val autoCheckAppUpdates: Boolean,
-    val lastAppUpdateCheckAt: Long?,
-    val cachedAppUpdateVersionName: String?,
-    val cachedAppUpdateVersionCode: Int?,
-    val cachedAppUpdateReleaseUrl: String?,
-    val cachedAppUpdateDownloadUrl: String?,
-    val cachedAppUpdateReleaseNotes: String,
-    val cachedAppUpdatePublishedAt: String?
-)
-
-data class AppUpdateUiModel(
-    val latestVersionName: String? = null,
-    val latestVersionCode: Int? = null,
-    val releaseUrl: String? = null,
-    val downloadUrl: String? = null,
-    val releaseNotes: String = "",
-    val publishedAt: String? = null,
-    val isUpdateAvailable: Boolean = false,
-    val lastCheckedAt: Long? = null,
-    val errorMessage: String? = null,
-    val downloadStatus: AppUpdateDownloadStatus = AppUpdateDownloadStatus.Idle,
-    val downloadedVersionName: String? = null
-)
 
 @HiltViewModel
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -155,184 +80,55 @@ class SettingsViewModel @Inject constructor(
     private val appContext = application
     private val exportBackup = ExportBackup(backupManager)
     private val importBackup = ImportBackup(backupManager)
-    private var updateCheckInFlight = false
 
     private val _uiState = MutableStateFlow(SettingsUiState())
     val uiState: StateFlow<SettingsUiState> = _uiState.asStateFlow()
     private val activeProviderIdFlow = providerRepository.getActiveProvider().map { it?.id }
+    private val appUpdateActions = SettingsAppUpdateActions(
+        appContext = application,
+        preferencesRepository = preferencesRepository,
+        gitHubReleaseChecker = gitHubReleaseChecker,
+        appUpdateInstaller = appUpdateInstaller,
+        uiState = _uiState
+    )
+    private val backupActions = SettingsBackupActions(
+        exportBackup = exportBackup,
+        importBackup = importBackup,
+        uiState = _uiState
+    )
+    private val recordingActions = SettingsRecordingActions(
+        appContext = application,
+        recordingManager = recordingManager,
+        uiState = _uiState
+    )
+    private val providerActions = SettingsProviderActions(
+        providerRepository = providerRepository,
+        combinedM3uRepository = combinedM3uRepository,
+        preferencesRepository = preferencesRepository,
+        syncProvider = syncProvider,
+        tvInputChannelSyncManager = tvInputChannelSyncManager,
+        uiState = _uiState
+    )
+    private val syncActions = SettingsSyncActions(
+        appContext = application,
+        syncManager = syncManager,
+        tvInputChannelSyncManager = tvInputChannelSyncManager,
+        uiState = _uiState,
+        refreshProvider = { scope, providerId -> providerActions.refreshProvider(scope, providerId) }
+    )
+    private val epgActions = SettingsEpgActions(
+        epgSourceRepository = epgSourceRepository,
+        uiState = _uiState
+    )
 
     init {
         viewModelScope.launch {
-            combine(
-                providerRepository.getProviders(),
-                activeProviderIdFlow,
-                preferencesRepository.parentalControlLevel,
-                preferencesRepository.hasParentalPin
-            ) { providers, activeId, level, hasParentalPin ->
-                SettingsPreferenceSnapshot(
-                    providers = providers,
-                    activeProviderId = activeId,
-                    parentalControlLevel = level,
-                    hasParentalPin = hasParentalPin,
-                    appLanguage = "system",
-                    preferredAudioLanguage = "auto",
-                    playerMediaSessionEnabled = true,
-                    playerDecoderMode = DecoderMode.AUTO,
-                    playerPlaybackSpeed = 1f,
-                    playerControlsTimeoutSeconds = 5,
-                    playerLiveOverlayTimeoutSeconds = 4,
-                    playerNoticeTimeoutSeconds = 6,
-                    playerDiagnosticsTimeoutSeconds = 15,
-                    subtitleTextScale = 1f,
-                    subtitleTextColor = 0xFFFFFFFF.toInt(),
-                    subtitleBackgroundColor = 0x80000000.toInt(),
-                    wifiMaxVideoHeight = null,
-                    ethernetMaxVideoHeight = null,
-                    lastSpeedTestMegabits = null,
-                    lastSpeedTestTimestamp = null,
-                    lastSpeedTestTransport = null,
-                    lastSpeedTestRecommendedHeight = null,
-                    lastSpeedTestEstimated = false,
-                    isIncognitoMode = false,
-                    useXtreamTextClassification = true,
-                    liveTvChannelMode = LiveTvChannelMode.PRO,
-                    showLiveSourceSwitcher = false,
-                    liveTvCategoryFilters = emptyList(),
-                    liveTvQuickFilterVisibilityMode = LiveTvQuickFilterVisibilityMode.ALWAYS_VISIBLE,
-                    liveChannelNumberingMode = ChannelNumberingMode.GROUP,
-                    vodViewMode = VodViewMode.MODERN,
-                    preventStandbyDuringPlayback = true,
-                    autoCheckAppUpdates = true,
-                    lastAppUpdateCheckAt = null,
-                    cachedAppUpdateVersionName = null,
-                    cachedAppUpdateVersionCode = null,
-                    cachedAppUpdateReleaseUrl = null,
-                    cachedAppUpdateDownloadUrl = null,
-                    cachedAppUpdateReleaseNotes = "",
-                    cachedAppUpdatePublishedAt = null
-                )
-            }.combine(preferencesRepository.appLanguage) { snapshot, language ->
-                snapshot.copy(appLanguage = language)
-            }.combine(preferencesRepository.preferredAudioLanguage) { snapshot, preferredAudioLanguage ->
-                snapshot.copy(preferredAudioLanguage = preferredAudioLanguage ?: "auto")
-            }.combine(preferencesRepository.playerMediaSessionEnabled) { snapshot, mediaSessionEnabled ->
-                snapshot.copy(playerMediaSessionEnabled = mediaSessionEnabled)
-            }.combine(preferencesRepository.playerDecoderMode) { snapshot, decoderMode ->
-                snapshot.copy(playerDecoderMode = decoderMode)
-            }.combine(preferencesRepository.playerPlaybackSpeed) { snapshot, playerPlaybackSpeed ->
-                snapshot.copy(playerPlaybackSpeed = playerPlaybackSpeed)
-            }.combine(preferencesRepository.playerControlsTimeoutSeconds) { snapshot, timeoutSeconds ->
-                snapshot.copy(playerControlsTimeoutSeconds = timeoutSeconds)
-            }.combine(preferencesRepository.playerLiveOverlayTimeoutSeconds) { snapshot, timeoutSeconds ->
-                snapshot.copy(playerLiveOverlayTimeoutSeconds = timeoutSeconds)
-            }.combine(preferencesRepository.playerNoticeTimeoutSeconds) { snapshot, timeoutSeconds ->
-                snapshot.copy(playerNoticeTimeoutSeconds = timeoutSeconds)
-            }.combine(preferencesRepository.playerDiagnosticsTimeoutSeconds) { snapshot, timeoutSeconds ->
-                snapshot.copy(playerDiagnosticsTimeoutSeconds = timeoutSeconds)
-            }.combine(preferencesRepository.playerSubtitleTextScale) { snapshot, subtitleTextScale ->
-                snapshot.copy(subtitleTextScale = subtitleTextScale)
-            }.combine(preferencesRepository.playerSubtitleTextColor) { snapshot, subtitleTextColor ->
-                snapshot.copy(subtitleTextColor = subtitleTextColor)
-            }.combine(preferencesRepository.playerSubtitleBackgroundColor) { snapshot, subtitleBackgroundColor ->
-                snapshot.copy(subtitleBackgroundColor = subtitleBackgroundColor)
-            }.combine(preferencesRepository.playerWifiMaxVideoHeight) { snapshot, wifiMaxVideoHeight ->
-                snapshot.copy(wifiMaxVideoHeight = wifiMaxVideoHeight)
-            }.combine(preferencesRepository.playerEthernetMaxVideoHeight) { snapshot, ethernetMaxVideoHeight ->
-                snapshot.copy(ethernetMaxVideoHeight = ethernetMaxVideoHeight)
-            }.combine(preferencesRepository.lastSpeedTestMegabits) { snapshot, lastSpeedTestMegabits ->
-                snapshot.copy(lastSpeedTestMegabits = lastSpeedTestMegabits)
-            }.combine(preferencesRepository.lastSpeedTestTimestamp) { snapshot, lastSpeedTestTimestamp ->
-                snapshot.copy(lastSpeedTestTimestamp = lastSpeedTestTimestamp)
-            }.combine(preferencesRepository.lastSpeedTestTransport) { snapshot, lastSpeedTestTransport ->
-                snapshot.copy(lastSpeedTestTransport = lastSpeedTestTransport)
-            }.combine(preferencesRepository.lastSpeedTestRecommendedHeight) { snapshot, lastSpeedTestRecommendedHeight ->
-                snapshot.copy(lastSpeedTestRecommendedHeight = lastSpeedTestRecommendedHeight)
-            }.combine(preferencesRepository.lastSpeedTestEstimated) { snapshot, lastSpeedTestEstimated ->
-                snapshot.copy(lastSpeedTestEstimated = lastSpeedTestEstimated)
-            }.combine(preferencesRepository.isIncognitoMode) { snapshot, incognito ->
-                snapshot.copy(isIncognitoMode = incognito)
-            }.combine(preferencesRepository.useXtreamTextClassification) { snapshot, useTextClass ->
-                snapshot.copy(useXtreamTextClassification = useTextClass)
-            }.combine(preferencesRepository.liveTvChannelMode) { snapshot, liveTvChannelMode ->
-                snapshot.copy(liveTvChannelMode = LiveTvChannelMode.fromStorage(liveTvChannelMode))
-            }.combine(preferencesRepository.showLiveSourceSwitcher) { snapshot, showLiveSourceSwitcher ->
-                snapshot.copy(showLiveSourceSwitcher = showLiveSourceSwitcher)
-            }.combine(preferencesRepository.liveTvCategoryFilters) { snapshot, liveTvCategoryFilters ->
-                snapshot.copy(liveTvCategoryFilters = liveTvCategoryFilters)
-            }.combine(preferencesRepository.liveTvQuickFilterVisibility) { snapshot, visibilityMode ->
-                snapshot.copy(
-                    liveTvQuickFilterVisibilityMode = LiveTvQuickFilterVisibilityMode.fromStorage(visibilityMode)
-                )
-            }.combine(preferencesRepository.liveChannelNumberingMode) { snapshot, liveChannelNumberingMode ->
-                snapshot.copy(liveChannelNumberingMode = liveChannelNumberingMode)
-            }.combine(preferencesRepository.vodViewMode) { snapshot, vodViewMode ->
-                snapshot.copy(vodViewMode = VodViewMode.fromStorage(vodViewMode))
-            }.combine(preferencesRepository.preventStandbyDuringPlayback) { snapshot, preventStandby ->
-                snapshot.copy(preventStandbyDuringPlayback = preventStandby)
-            }.combine(preferencesRepository.autoCheckAppUpdates) { snapshot, autoCheckAppUpdates ->
-                snapshot.copy(autoCheckAppUpdates = autoCheckAppUpdates)
-            }.combine(preferencesRepository.lastAppUpdateCheckTimestamp) { snapshot, lastAppUpdateCheckAt ->
-                snapshot.copy(lastAppUpdateCheckAt = lastAppUpdateCheckAt)
-            }.combine(preferencesRepository.cachedAppUpdateVersionName) { snapshot, versionName ->
-                snapshot.copy(cachedAppUpdateVersionName = versionName)
-            }.combine(preferencesRepository.cachedAppUpdateVersionCode) { snapshot, versionCode ->
-                snapshot.copy(cachedAppUpdateVersionCode = versionCode)
-            }.combine(preferencesRepository.cachedAppUpdateReleaseUrl) { snapshot, releaseUrl ->
-                snapshot.copy(cachedAppUpdateReleaseUrl = releaseUrl)
-            }.combine(preferencesRepository.cachedAppUpdateDownloadUrl) { snapshot, downloadUrl ->
-                snapshot.copy(cachedAppUpdateDownloadUrl = downloadUrl)
-            }.combine(preferencesRepository.cachedAppUpdateReleaseNotes) { snapshot, releaseNotes ->
-                snapshot.copy(cachedAppUpdateReleaseNotes = releaseNotes)
-            }.combine(preferencesRepository.cachedAppUpdatePublishedAt) { snapshot, publishedAt ->
-                snapshot.copy(cachedAppUpdatePublishedAt = publishedAt)
-            }.collect { snapshot ->
-                val cachedAppUpdate = snapshot.toCachedAppUpdateUiModel()
-                _uiState.update {
-                    it.copy(
-                        providers = snapshot.providers,
-                        activeProviderId = snapshot.activeProviderId,
-                        parentalControlLevel = snapshot.parentalControlLevel,
-                        hasParentalPin = snapshot.hasParentalPin,
-                        appLanguage = snapshot.appLanguage,
-                        preferredAudioLanguage = snapshot.preferredAudioLanguage,
-                        playerMediaSessionEnabled = snapshot.playerMediaSessionEnabled,
-                        playerDecoderMode = snapshot.playerDecoderMode,
-                        playerPlaybackSpeed = snapshot.playerPlaybackSpeed,
-                        playerControlsTimeoutSeconds = snapshot.playerControlsTimeoutSeconds,
-                        playerLiveOverlayTimeoutSeconds = snapshot.playerLiveOverlayTimeoutSeconds,
-                        playerNoticeTimeoutSeconds = snapshot.playerNoticeTimeoutSeconds,
-                        playerDiagnosticsTimeoutSeconds = snapshot.playerDiagnosticsTimeoutSeconds,
-                        subtitleTextScale = snapshot.subtitleTextScale,
-                        subtitleTextColor = snapshot.subtitleTextColor,
-                        subtitleBackgroundColor = snapshot.subtitleBackgroundColor,
-                        wifiMaxVideoHeight = snapshot.wifiMaxVideoHeight,
-                        ethernetMaxVideoHeight = snapshot.ethernetMaxVideoHeight,
-                        lastSpeedTest = snapshot.lastSpeedTestMegabits?.let {
-                            InternetSpeedTestUiModel(
-                                megabitsPerSecond = it,
-                                measuredAtMs = snapshot.lastSpeedTestTimestamp ?: 0L,
-                                transportLabel = snapshot.lastSpeedTestTransport ?: InternetSpeedTestTransport.UNKNOWN.name,
-                                recommendedMaxVideoHeight = snapshot.lastSpeedTestRecommendedHeight,
-                                isEstimated = snapshot.lastSpeedTestEstimated
-                            )
-                        },
-                        isIncognitoMode = snapshot.isIncognitoMode,
-                        useXtreamTextClassification = snapshot.useXtreamTextClassification,
-                        liveTvChannelMode = snapshot.liveTvChannelMode,
-                        showLiveSourceSwitcher = snapshot.showLiveSourceSwitcher,
-                        liveTvCategoryFilters = snapshot.liveTvCategoryFilters,
-                        liveTvQuickFilterVisibilityMode = snapshot.liveTvQuickFilterVisibilityMode,
-                        liveChannelNumberingMode = snapshot.liveChannelNumberingMode,
-                        vodViewMode = snapshot.vodViewMode,
-                        preventStandbyDuringPlayback = snapshot.preventStandbyDuringPlayback,
-                        autoCheckAppUpdates = snapshot.autoCheckAppUpdates,
-                        appUpdate = cachedAppUpdate.copy(
-                            downloadStatus = it.appUpdate.downloadStatus,
-                            downloadedVersionName = it.appUpdate.downloadedVersionName,
-                            errorMessage = it.appUpdate.errorMessage
-                        )
-                    )
-                }
+            observeSettingsPreferenceSnapshot(
+                providerRepository = providerRepository,
+                activeProviderIdFlow = activeProviderIdFlow,
+                preferencesRepository = preferencesRepository
+            ).collect { snapshot ->
+                _uiState.update { it.applyPreferenceSnapshot(snapshot) }
             }
         }
 
@@ -343,8 +139,12 @@ class SettingsViewModel @Inject constructor(
             ) { autoCheckEnabled, lastCheckedAt ->
                 autoCheckEnabled to lastCheckedAt
             }.distinctUntilChanged().collect { (autoCheckEnabled, lastCheckedAt) ->
-                if (autoCheckEnabled && shouldAutoCheckForUpdates(lastCheckedAt)) {
-                    checkForAppUpdates(manual = false)
+                if (autoCheckEnabled && appUpdateActions.shouldAutoCheckForUpdates(lastCheckedAt)) {
+                    appUpdateActions.checkForAppUpdates(
+                        scope = viewModelScope,
+                        manual = false,
+                        isRemoteVersionNewer = ::isRemoteVersionNewer
+                    )
                 }
             }
         }
@@ -380,114 +180,28 @@ class SettingsViewModel @Inject constructor(
         }
 
         viewModelScope.launch {
-            providerRepository.getProviders()
-                .flatMapLatest { providers ->
-                    if (providers.isEmpty()) {
-                        flowOf(emptyMap())
-                    } else {
-                        combine(
-                            providers.map { provider ->
-                                syncMetadataRepository.observeMetadata(provider.id).map { metadata ->
-                                    provider.id to ProviderDiagnosticsUiModel(
-                                        lastSyncStatus = metadata?.lastSyncStatus ?: "NONE",
-                                        lastLiveSync = metadata?.lastLiveSync ?: 0L,
-                                        lastMovieSync = metadata?.lastMovieSync ?: 0L,
-                                        lastMovieAttempt = metadata?.lastMovieAttempt ?: 0L,
-                                        lastMovieSuccess = metadata?.lastMovieSuccess ?: 0L,
-                                        lastMoviePartial = metadata?.lastMoviePartial ?: 0L,
-                                        lastSeriesSync = metadata?.lastSeriesSync ?: 0L,
-                                        lastEpgSync = metadata?.lastEpgSync ?: 0L,
-                                        liveCount = metadata?.liveCount ?: 0,
-                                        movieCount = metadata?.movieCount ?: 0,
-                                        seriesCount = metadata?.seriesCount ?: 0,
-                                        epgCount = metadata?.epgCount ?: 0,
-                                        movieSyncMode = metadata?.movieSyncMode ?: VodSyncMode.UNKNOWN,
-                                        movieWarningsCount = metadata?.movieWarningsCount ?: 0,
-                                        movieCatalogStale = metadata?.movieCatalogStale ?: false,
-                                        capabilitySummary = buildCapabilitySummary(provider),
-                                        sourceLabel = when (provider.type) {
-                                            ProviderType.XTREAM_CODES -> "Xtream Codes"
-                                            ProviderType.M3U -> "M3U Playlist"
-                                        },
-                                        expirySummary = run {
-                                            val expirationDate = provider.expirationDate
-                                            when {
-                                                expirationDate == null -> "Expiry unknown"
-                                                expirationDate == Long.MAX_VALUE -> "No expiry reported"
-                                                expirationDate < System.currentTimeMillis() -> "Expired"
-                                                else -> "Active until ${java.text.SimpleDateFormat("d MMM yyyy", java.util.Locale.getDefault()).format(java.util.Date(expirationDate))}"
-                                            }
-                                        },
-                                        connectionSummary = "${provider.maxConnections} connection(s)",
-                                        archiveSummary = when (provider.type) {
-                                            ProviderType.XTREAM_CODES -> "Catch-up depends on provider archive flags and replay stream ids."
-                                            ProviderType.M3U -> if (provider.epgUrl.isBlank()) {
-                                                "M3U replay is limited without guide coverage."
-                                            } else {
-                                                "M3U replay depends on channel templates and guide alignment."
-                                            }
-                                        }
-                                    )
-                                }
-                            }
-                        ) { pairs ->
-                            pairs.toMap()
-                        }
-                    }
-                }
-                .collect { diagnosticsByProvider ->
-                    _uiState.update { it.copy(diagnosticsByProvider = diagnosticsByProvider) }
-                }
+            observeProviderDiagnostics(
+                providerRepository = providerRepository,
+                syncMetadataRepository = syncMetadataRepository,
+                application = appContext
+            ).collect { diagnosticsByProvider ->
+                _uiState.update { it.copy(diagnosticsByProvider = diagnosticsByProvider) }
+            }
         }
 
         viewModelScope.launch {
-            activeProviderIdFlow
-                .flatMapLatest { providerId ->
-                    if (providerId == null) {
-                        flowOf(CategoryManagementSnapshot())
-                    } else {
-                        combine(
-                            preferencesRepository.getCategorySortMode(providerId, ContentType.LIVE),
-                            preferencesRepository.getCategorySortMode(providerId, ContentType.MOVIE),
-                            preferencesRepository.getCategorySortMode(providerId, ContentType.SERIES),
-                            categoryRepository.getCategories(providerId),
-                            preferencesRepository.getHiddenCategoryIds(providerId, ContentType.LIVE),
-                            preferencesRepository.getHiddenCategoryIds(providerId, ContentType.MOVIE),
-                            preferencesRepository.getHiddenCategoryIds(providerId, ContentType.SERIES)
-                        ) { values ->
-                            val liveSort = values[0] as CategorySortMode
-                            val movieSort = values[1] as CategorySortMode
-                            val seriesSort = values[2] as CategorySortMode
-                            val categories = values[3] as List<Category>
-                            val hiddenLive = values[4] as Set<Long>
-                            val hiddenMovies = values[5] as Set<Long>
-                            val hiddenSeries = values[6] as Set<Long>
-                            val hiddenByType = mapOf(
-                                ContentType.LIVE to hiddenLive,
-                                ContentType.MOVIE to hiddenMovies,
-                                ContentType.SERIES to hiddenSeries
-                            )
-                            CategoryManagementSnapshot(
-                                categorySortModes = mapOf(
-                                    ContentType.LIVE to liveSort,
-                                    ContentType.MOVIE to movieSort,
-                                    ContentType.SERIES to seriesSort
-                                ),
-                                hiddenCategories = categories
-                                    .filter { category -> category.id in hiddenByType[category.type].orEmpty() }
-                                    .sortedWith(compareBy<Category>({ it.type.ordinal }, { it.name.lowercase() }))
-                            )
-                        }
-                    }
+            observeCategoryManagement(
+                activeProviderIdFlow = activeProviderIdFlow,
+                preferencesRepository = preferencesRepository,
+                categoryRepository = categoryRepository
+            ).collect { snapshot ->
+                _uiState.update {
+                    it.copy(
+                        categorySortModes = snapshot.categorySortModes,
+                        hiddenCategories = snapshot.hiddenCategories
+                    )
                 }
-                .collect { snapshot ->
-                    _uiState.update {
-                        it.copy(
-                            categorySortModes = snapshot.categorySortModes,
-                            hiddenCategories = snapshot.hiddenCategories
-                        )
-                    }
-                }
+            }
         }
 
         viewModelScope.launch {
@@ -504,136 +218,43 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun setActiveProvider(providerId: Long) {
-        viewModelScope.launch {
-            preferencesRepository.setLastActiveProviderId(providerId)
-            combinedM3uRepository.setActiveLiveSource(ActiveLiveSource.ProviderSource(providerId))
-            providerRepository.setActiveProvider(providerId)
-            // Force sync on connect
-            refreshProvider(providerId)
-        }
+        providerActions.setActiveProvider(viewModelScope, providerId)
     }
 
     fun setActiveCombinedProfile(profileId: Long) {
-        viewModelScope.launch {
-            when (combinedM3uRepository.setActiveLiveSource(ActiveLiveSource.CombinedM3uSource(profileId))) {
-                is Result.Success -> _uiState.update { it.copy(userMessage = "Combined M3U source activated") }
-                is Result.Error -> _uiState.update { it.copy(userMessage = "Could not activate combined source") }
-                Result.Loading -> Unit
-            }
-        }
+        providerActions.setActiveCombinedProfile(viewModelScope, profileId)
     }
 
     fun createCombinedProfile(name: String, providerIds: List<Long>) {
-        viewModelScope.launch {
-            when (val result = combinedM3uRepository.createProfile(name, providerIds)) {
-                is Result.Success -> {
-                    combinedM3uRepository.setActiveLiveSource(ActiveLiveSource.CombinedM3uSource(result.data.id))
-                    _uiState.update { it.copy(userMessage = "Combined M3U source created") }
-                }
-                is Result.Error -> _uiState.update { it.copy(userMessage = result.message) }
-                Result.Loading -> Unit
-            }
-        }
+        providerActions.createCombinedProfile(viewModelScope, name, providerIds)
     }
 
     fun deleteCombinedProfile(profileId: Long) {
-        viewModelScope.launch {
-            when (val result = combinedM3uRepository.deleteProfile(profileId)) {
-                is Result.Success -> _uiState.update { it.copy(userMessage = "Combined M3U source deleted") }
-                is Result.Error -> _uiState.update { it.copy(userMessage = result.message) }
-                Result.Loading -> Unit
-            }
-        }
+        providerActions.deleteCombinedProfile(viewModelScope, profileId)
     }
 
     fun addProviderToCombinedProfile(profileId: Long, providerId: Long) {
-        viewModelScope.launch {
-            when (val result = combinedM3uRepository.addProvider(profileId, providerId)) {
-                is Result.Success -> _uiState.update { it.copy(userMessage = "Playlist added to combined source") }
-                is Result.Error -> _uiState.update { it.copy(userMessage = result.message) }
-                Result.Loading -> Unit
-            }
-        }
+        providerActions.addProviderToCombinedProfile(viewModelScope, profileId, providerId)
     }
 
     fun renameCombinedProfile(profileId: Long, name: String) {
-        viewModelScope.launch {
-            when (val result = combinedM3uRepository.updateProfileName(profileId, name)) {
-                is Result.Success -> _uiState.update { it.copy(userMessage = "Combined M3U source renamed") }
-                is Result.Error -> _uiState.update { it.copy(userMessage = result.message) }
-                Result.Loading -> Unit
-            }
-        }
+        providerActions.renameCombinedProfile(viewModelScope, profileId, name)
     }
 
     fun removeProviderFromCombinedProfile(profileId: Long, providerId: Long) {
-        viewModelScope.launch {
-            when (val result = combinedM3uRepository.removeProvider(profileId, providerId)) {
-                is Result.Success -> _uiState.update { it.copy(userMessage = "Playlist removed from combined source") }
-                is Result.Error -> _uiState.update { it.copy(userMessage = result.message) }
-                Result.Loading -> Unit
-            }
-        }
+        providerActions.removeProviderFromCombinedProfile(viewModelScope, profileId, providerId)
     }
 
     fun moveCombinedProvider(profileId: Long, providerId: Long, moveUp: Boolean) {
-        viewModelScope.launch {
-            val profile = _uiState.value.combinedProfiles.firstOrNull { it.id == profileId }
-                ?: return@launch
-            val orderedProviderIds = profile.members
-                .sortedBy { it.priority }
-                .map { it.providerId }
-                .toMutableList()
-            val currentIndex = orderedProviderIds.indexOf(providerId)
-            if (currentIndex == -1) return@launch
-            val targetIndex = if (moveUp) currentIndex - 1 else currentIndex + 1
-            if (targetIndex !in orderedProviderIds.indices) return@launch
-            java.util.Collections.swap(orderedProviderIds, currentIndex, targetIndex)
-            when (val result = combinedM3uRepository.reorderMembers(profileId, orderedProviderIds)) {
-                is Result.Success -> _uiState.update { it.copy(userMessage = "Combined playlist order updated") }
-                is Result.Error -> _uiState.update { it.copy(userMessage = result.message) }
-                Result.Loading -> Unit
-            }
-        }
+        providerActions.moveCombinedProvider(viewModelScope, profileId, providerId, moveUp)
     }
 
     fun setCombinedProviderEnabled(profileId: Long, providerId: Long, enabled: Boolean) {
-        viewModelScope.launch {
-            when (val result = combinedM3uRepository.setMemberEnabled(profileId, providerId, enabled)) {
-                is Result.Success -> _uiState.update {
-                    it.copy(userMessage = if (enabled) "Playlist enabled in combined source" else "Playlist disabled in combined source")
-                }
-                is Result.Error -> _uiState.update { it.copy(userMessage = result.message) }
-                Result.Loading -> Unit
-            }
-        }
+        providerActions.setCombinedProviderEnabled(viewModelScope, profileId, providerId, enabled)
     }
 
     fun setM3uVodClassificationEnabled(providerId: Long, enabled: Boolean) {
-        viewModelScope.launch {
-            val provider = providerRepository.getProvider(providerId) ?: return@launch
-            if (provider.type != ProviderType.M3U) return@launch
-            when (
-                val result = providerRepository.updateProvider(
-                    provider.copy(m3uVodClassificationEnabled = enabled)
-                )
-            ) {
-                is Result.Error -> {
-                    _uiState.update { it.copy(userMessage = "Could not save provider setting: ${result.message}") }
-                }
-                else -> {
-                    _uiState.update {
-                        it.copy(
-                            userMessage = if (enabled) {
-                                "M3U VOD classification enabled. Refresh the playlist to reclassify content."
-                            } else {
-                                "M3U VOD classification disabled. Refresh the playlist to reclassify content."
-                            }
-                        )
-                    }
-                }
-            }
-        }
+        providerActions.setM3uVodClassificationEnabled(viewModelScope, providerId, enabled)
     }
 
     fun refreshProviderClassification(providerId: Long) {
@@ -730,42 +351,19 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun checkForAppUpdates() {
-        checkForAppUpdates(manual = true)
+        appUpdateActions.checkForAppUpdates(
+            scope = viewModelScope,
+            manual = true,
+            isRemoteVersionNewer = ::isRemoteVersionNewer
+        )
     }
 
     fun downloadLatestUpdate() {
-        val latestRelease = _uiState.value.appUpdate.toReleaseInfoOrNull() ?: run {
-            _uiState.update {
-                it.copy(userMessage = appContext.getString(R.string.settings_update_download_unavailable))
-            }
-            return
-        }
-
-        viewModelScope.launch {
-            when (val result = appUpdateInstaller.startDownload(latestRelease)) {
-                is Result.Error -> _uiState.update {
-                    it.copy(userMessage = result.message)
-                }
-                is Result.Success -> _uiState.update {
-                    it.copy(userMessage = appContext.getString(R.string.settings_update_download_started))
-                }
-                else -> Unit
-            }
-        }
+        appUpdateActions.downloadLatestUpdate(viewModelScope)
     }
 
     fun installDownloadedUpdate() {
-        viewModelScope.launch {
-            when (val result = appUpdateInstaller.installDownloadedUpdate()) {
-                is Result.Error -> _uiState.update {
-                    it.copy(userMessage = result.message)
-                }
-                is Result.Success -> _uiState.update {
-                    it.copy(userMessage = appContext.getString(R.string.settings_update_install_started))
-                }
-                else -> Unit
-            }
-        }
+        appUpdateActions.installDownloadedUpdate(viewModelScope)
     }
 
     fun setCategorySortMode(type: ContentType, mode: CategorySortMode) {
@@ -964,255 +562,27 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun refreshProvider(providerId: Long, movieFastSyncOverride: Boolean? = null) {
-        viewModelScope.launch {
-            _uiState.update { it.copy(isSyncing = true) }
-            try {
-            val result = syncProvider(
-                SyncProviderCommand(
-                    providerId = providerId,
-                    force = true,
-                    movieFastSyncOverride = movieFastSyncOverride
-                )
-            )
-            if (result !is SyncProviderResult.Error) {
-                tvInputChannelSyncManager.refreshTvInputCatalog()
-            }
-            _uiState.update { state ->
-                val partialWarnings = (result as? SyncProviderResult.Success)?.warnings.orEmpty()
-                val warningsMessage = partialWarnings
-                    .take(3)
-                    .joinToString(separator = ", ")
-                    .ifBlank { "Some sections are incomplete." }
-                state.copy(
-                    isSyncing = false,
-                    userMessage = when {
-                        result is SyncProviderResult.Error -> "Refresh failed: ${result.message}"
-                        (result as? SyncProviderResult.Success)?.isPartial == true -> "Refresh completed with warnings: $warningsMessage"
-                        else -> "Provider refreshed successfully"
-                    },
-                    syncWarningsByProvider = when {
-                        result is SyncProviderResult.Error -> state.syncWarningsByProvider - providerId
-                        (result as? SyncProviderResult.Success)?.isPartial == true -> state.syncWarningsByProvider + (providerId to partialWarnings)
-                        else -> state.syncWarningsByProvider - providerId
-                    }
-                )
-            }
-            } catch (e: Exception) {
-                _uiState.update { it.copy(isSyncing = false, userMessage = "Sync failed: ${e.message}") }
-            }
-        }
+        providerActions.refreshProvider(viewModelScope, providerId, movieFastSyncOverride)
     }
 
     fun syncProviderSection(providerId: Long, selection: ProviderSyncSelection) {
-        viewModelScope.launch {
-            when (selection) {
-                ProviderSyncSelection.ALL, ProviderSyncSelection.FAST -> refreshProvider(providerId)
-                else -> runSectionSync(providerId, listOf(selection))
-            }
-        }
+        syncActions.syncProviderSection(viewModelScope, providerId, selection)
     }
 
     fun syncProviderCustom(providerId: Long, selections: Set<ProviderSyncSelection>) {
-        viewModelScope.launch {
-            val orderedSelections = listOf(
-                ProviderSyncSelection.TV,
-                ProviderSyncSelection.MOVIES,
-                ProviderSyncSelection.SERIES,
-                ProviderSyncSelection.EPG
-            ).filter { it in selections }
-            if (orderedSelections.isEmpty()) {
-                _uiState.update {
-                    it.copy(userMessage = appContext.getString(R.string.settings_sync_custom_required))
-                }
-                return@launch
-            }
-            runSectionSync(providerId, orderedSelections)
-        }
+        syncActions.syncProviderCustom(viewModelScope, providerId, selections)
     }
 
     fun retryWarningAction(providerId: Long, action: ProviderWarningAction) {
-        viewModelScope.launch {
-            _uiState.update { it.copy(isSyncing = true) }
-            val section = when (action) {
-                ProviderWarningAction.EPG -> SyncRepairSection.EPG
-                ProviderWarningAction.MOVIES -> SyncRepairSection.MOVIES
-                ProviderWarningAction.SERIES -> SyncRepairSection.SERIES
-            }
-            val result = syncManager.retrySection(providerId, section)
-            _uiState.update { state ->
-                if (result is Result.Error) {
-                    state.copy(
-                        isSyncing = false,
-                        userMessage = "Retry failed: ${result.message}"
-                    )
-                } else {
-                    val currentWarnings = state.syncWarningsByProvider[providerId].orEmpty()
-                    val updatedWarnings = currentWarnings.filterNot { warning ->
-                        when (action) {
-                            ProviderWarningAction.EPG -> warning.contains("EPG", ignoreCase = true)
-                            ProviderWarningAction.MOVIES -> warning.contains("Movies", ignoreCase = true)
-                            ProviderWarningAction.SERIES -> warning.contains("Series", ignoreCase = true)
-                        }
-                    }
-                    state.copy(
-                        isSyncing = false,
-                        userMessage = if (updatedWarnings.isEmpty()) {
-                            "Section retry succeeded. All current warnings cleared."
-                        } else {
-                            "Section retry succeeded."
-                        },
-                        syncWarningsByProvider = if (updatedWarnings.isEmpty()) {
-                            state.syncWarningsByProvider - providerId
-                        } else {
-                            state.syncWarningsByProvider + (providerId to updatedWarnings)
-                        }
-                    )
-                }
-            }
-        }
-    }
-
-    private suspend fun runSectionSync(
-        providerId: Long,
-        selections: List<ProviderSyncSelection>
-    ) {
-        _uiState.update { it.copy(isSyncing = true) }
-        try {
-        val failures = mutableListOf<String>()
-        val completed = mutableListOf<String>()
-
-        selections.forEach { selection ->
-            val section = when (selection) {
-                ProviderSyncSelection.TV -> SyncRepairSection.LIVE
-                ProviderSyncSelection.MOVIES -> SyncRepairSection.MOVIES
-                ProviderSyncSelection.SERIES -> SyncRepairSection.SERIES
-                ProviderSyncSelection.EPG -> SyncRepairSection.EPG
-                ProviderSyncSelection.ALL, ProviderSyncSelection.FAST -> null
-            } ?: return@forEach
-
-            when (val result = syncManager.retrySection(providerId, section)) {
-                is Result.Error -> failures += "${selection.label(appContext)}: ${result.message}"
-                else -> completed += selection.label(appContext)
-            }
-        }
-
-        if (completed.any { it == appContext.getString(R.string.settings_sync_option_all) || it == appContext.getString(R.string.settings_sync_option_tv) }) {
-            tvInputChannelSyncManager.refreshTvInputCatalog()
-        }
-
-        _uiState.update { state ->
-            state.copy(
-                isSyncing = false,
-                userMessage = when {
-                    failures.isEmpty() -> appContext.getString(
-                        R.string.settings_sync_sections_success,
-                        completed.joinToString()
-                    )
-                    completed.isEmpty() -> appContext.getString(
-                        R.string.settings_sync_sections_failed,
-                        failures.joinToString()
-                    )
-                    else -> appContext.getString(
-                        R.string.settings_sync_sections_partial,
-                        completed.joinToString(),
-                        failures.joinToString()
-                    )
-                }
-            )
-        }
-        } catch (e: Exception) {
-            _uiState.update { it.copy(isSyncing = false, userMessage = "Sync failed: ${e.message}") }
-        }
+        syncActions.retryWarningAction(viewModelScope, providerId, action)
     }
 
     fun deleteProvider(providerId: Long) {
-        viewModelScope.launch {
-            providerRepository.deleteProvider(providerId)
-        }
+        providerActions.deleteProvider(viewModelScope, providerId)
     }
 
     fun userMessageShown() {
         _uiState.update { it.copy(userMessage = null) }
-    }
-
-    private fun checkForAppUpdates(manual: Boolean) {
-        if (updateCheckInFlight) return
-        updateCheckInFlight = true
-        viewModelScope.launch {
-            val checkedAt = System.currentTimeMillis()
-            _uiState.update {
-                it.copy(
-                    isCheckingForUpdates = true,
-                    appUpdate = it.appUpdate.copy(errorMessage = null)
-                )
-            }
-            preferencesRepository.setLastAppUpdateCheckTimestamp(checkedAt)
-            when (val result = gitHubReleaseChecker.fetchLatestRelease()) {
-                is Result.Error -> {
-                    _uiState.update {
-                        it.copy(
-                            isCheckingForUpdates = false,
-                            userMessage = if (manual) result.message else it.userMessage,
-                            appUpdate = it.appUpdate.copy(
-                                lastCheckedAt = checkedAt,
-                                errorMessage = result.message
-                            )
-                        )
-                    }
-                }
-                is Result.Success -> {
-                    val release = result.data
-                    preferencesRepository.setCachedAppUpdateRelease(
-                        versionName = release.versionName,
-                        versionCode = release.versionCode,
-                        releaseUrl = release.releaseUrl,
-                        downloadUrl = release.downloadUrl,
-                        releaseNotes = release.releaseNotes,
-                        publishedAt = release.publishedAt
-                    )
-                    val updateAvailable = isRemoteVersionNewer(
-                        remoteVersionCode = release.versionCode,
-                        remoteVersionName = release.versionName
-                    )
-                    _uiState.update {
-                        it.copy(
-                            isCheckingForUpdates = false,
-                            userMessage = if (manual) {
-                                if (updateAvailable) {
-                                    appContext.getString(R.string.settings_update_available_message, release.versionName)
-                                } else {
-                                    appContext.getString(R.string.settings_update_current_message)
-                                }
-                            } else {
-                                it.userMessage
-                            },
-                            appUpdate = AppUpdateUiModel(
-                                latestVersionName = release.versionName,
-                                latestVersionCode = release.versionCode,
-                                releaseUrl = release.releaseUrl,
-                                downloadUrl = release.downloadUrl,
-                                releaseNotes = release.releaseNotes,
-                                publishedAt = release.publishedAt,
-                                isUpdateAvailable = updateAvailable,
-                                lastCheckedAt = checkedAt,
-                                errorMessage = null
-                            ).withDownloadState(it.appUpdate.toDownloadState())
-                        )
-                    }
-                    appUpdateInstaller.refreshState()
-                }
-                else -> {
-                    _uiState.update { it.copy(isCheckingForUpdates = false) }
-                }
-            }
-            updateCheckInFlight = false
-        }
-    }
-
-    private fun shouldAutoCheckForUpdates(lastCheckedAt: Long?): Boolean {
-        val now = System.currentTimeMillis()
-        val checkIntervalMs = 24L * 60L * 60L * 1000L
-        return lastCheckedAt == null || now - lastCheckedAt >= checkIntervalMs
     }
 
     private fun isRemoteVersionNewer(remoteVersionCode: Int?, remoteVersionName: String): Boolean {
@@ -1237,598 +607,128 @@ class SettingsViewModel @Inject constructor(
     }
 
     fun exportConfig(uriString: String) {
-        viewModelScope.launch {
-            _uiState.update { it.copy(isSyncing = true) }
-            val result = exportBackup(ExportBackupCommand(uriString))
-            _uiState.update { state ->
-                state.copy(
-                    isSyncing = false,
-                    userMessage = if (result is ExportBackupResult.Error)
-                        "Export failed: ${result.message}"
-                    else "Configuration exported successfully"
-                )
-            }
-        }
+        backupActions.exportConfig(viewModelScope, uriString)
     }
 
     fun inspectBackup(uriString: String) {
-        viewModelScope.launch {
-            _uiState.update { it.copy(isSyncing = true) }
-            val result = importBackup.inspect(InspectBackupCommand(uriString))
-            _uiState.update { state ->
-                when (result) {
-                    is InspectBackupResult.Error -> state.copy(
-                        isSyncing = false,
-                        userMessage = "Import failed: ${result.message}"
-                    )
-                    is InspectBackupResult.Success -> state.copy(
-                        isSyncing = false,
-                        pendingBackupUri = result.uriString,
-                        backupPreview = result.preview,
-                        backupImportPlan = result.defaultPlan
-                    )
-                }
-            }
-        }
+        backupActions.inspectBackup(viewModelScope, uriString)
     }
 
     fun dismissBackupPreview() {
-        _uiState.update {
-            it.copy(
-                backupPreview = null,
-                pendingBackupUri = null,
-                backupImportPlan = BackupImportPlan()
-            )
-        }
+        backupActions.dismissBackupPreview()
     }
 
     fun setBackupConflictStrategy(strategy: BackupConflictStrategy) {
-        _uiState.update { it.copy(backupImportPlan = it.backupImportPlan.copy(conflictStrategy = strategy)) }
+        backupActions.setBackupConflictStrategy(strategy)
     }
 
     fun setImportPreferences(enabled: Boolean) {
-        _uiState.update { it.copy(backupImportPlan = it.backupImportPlan.copy(importPreferences = enabled)) }
+        backupActions.setImportPreferences(enabled)
     }
 
     fun setImportProviders(enabled: Boolean) {
-        _uiState.update { it.copy(backupImportPlan = it.backupImportPlan.copy(importProviders = enabled)) }
+        backupActions.setImportProviders(enabled)
     }
 
     fun setImportSavedLibrary(enabled: Boolean) {
-        _uiState.update { it.copy(backupImportPlan = it.backupImportPlan.copy(importSavedLibrary = enabled)) }
+        backupActions.setImportSavedLibrary(enabled)
     }
 
     fun setImportPlaybackHistory(enabled: Boolean) {
-        _uiState.update { it.copy(backupImportPlan = it.backupImportPlan.copy(importPlaybackHistory = enabled)) }
+        backupActions.setImportPlaybackHistory(enabled)
     }
 
     fun setImportMultiViewPresets(enabled: Boolean) {
-        _uiState.update { it.copy(backupImportPlan = it.backupImportPlan.copy(importMultiViewPresets = enabled)) }
+        backupActions.setImportMultiViewPresets(enabled)
     }
 
     fun setImportRecordingSchedules(enabled: Boolean) {
-        _uiState.update { it.copy(backupImportPlan = it.backupImportPlan.copy(importRecordingSchedules = enabled)) }
+        backupActions.setImportRecordingSchedules(enabled)
     }
 
     fun confirmBackupImport() {
-        val uriString = _uiState.value.pendingBackupUri ?: return
-        val plan = _uiState.value.backupImportPlan
-        viewModelScope.launch {
-            _uiState.update { it.copy(isSyncing = true) }
-            val result = importBackup.confirm(ImportBackupCommand(uriString, plan))
-            _uiState.update { state ->
-                state.copy(
-                    isSyncing = false,
-                    userMessage = if (result is ImportBackupResult.Error)
-                        "Import failed: ${result.message}"
-                    else "Configuration imported: ${(result as ImportBackupResult.Success).importedSummary}",
-                    backupPreview = null,
-                    pendingBackupUri = null,
-                    backupImportPlan = BackupImportPlan()
-                )
-            }
-        }
+        backupActions.confirmBackupImport(viewModelScope)
     }
 
     fun stopRecording(recordingId: String) {
-        viewModelScope.launch {
-            val result = recordingManager.stopRecording(recordingId)
-            _uiState.update {
-                it.copy(
-                    userMessage = if (result is Result.Error) {
-                        appContext.getString(R.string.settings_recording_stop_failed, result.message)
-                    } else {
-                        appContext.getString(R.string.settings_recording_stopped)
-                    }
-                )
-            }
-        }
+        recordingActions.stopRecording(viewModelScope, recordingId)
     }
 
     fun cancelRecording(recordingId: String) {
-        viewModelScope.launch {
-            val result = recordingManager.cancelRecording(recordingId)
-            _uiState.update {
-                it.copy(
-                    userMessage = if (result is Result.Error) {
-                        appContext.getString(R.string.settings_recording_cancel_failed, result.message)
-                    } else {
-                        appContext.getString(R.string.settings_recording_cancelled)
-                    }
-                )
-            }
-        }
+        recordingActions.cancelRecording(viewModelScope, recordingId)
     }
 
     fun deleteRecording(recordingId: String) {
-        viewModelScope.launch {
-            val result = recordingManager.deleteRecording(recordingId)
-            _uiState.update {
-                it.copy(
-                    userMessage = if (result is Result.Error) {
-                        appContext.getString(R.string.settings_recording_delete_failed, result.message)
-                    } else {
-                        appContext.getString(R.string.settings_recording_deleted)
-                    }
-                )
-            }
-        }
+        recordingActions.deleteRecording(viewModelScope, recordingId)
     }
 
     fun retryRecording(recordingId: String) {
-        viewModelScope.launch {
-            val result = recordingManager.retryRecording(recordingId)
-            _uiState.update {
-                it.copy(
-                    userMessage = if (result is Result.Error) {
-                        appContext.getString(R.string.settings_recording_retry_failed, result.message)
-                    } else {
-                        appContext.getString(R.string.settings_recording_retry_started)
-                    }
-                )
-            }
-        }
+        recordingActions.retryRecording(viewModelScope, recordingId)
     }
 
     fun setRecordingScheduleEnabled(recordingId: String, enabled: Boolean) {
-        viewModelScope.launch {
-            val result = recordingManager.setScheduleEnabled(recordingId, enabled)
-            _uiState.update {
-                it.copy(
-                    userMessage = if (result is Result.Error) {
-                        appContext.getString(R.string.settings_recording_schedule_toggle_failed, result.message)
-                    } else {
-                        appContext.getString(
-                            if (enabled) R.string.settings_recording_schedule_enabled
-                            else R.string.settings_recording_schedule_disabled
-                        )
-                    }
-                )
-            }
-        }
+        recordingActions.setRecordingScheduleEnabled(viewModelScope, recordingId, enabled)
     }
 
     fun reconcileRecordings() {
-        viewModelScope.launch {
-            val result = recordingManager.reconcileRecordingState()
-            _uiState.update {
-                it.copy(
-                    userMessage = if (result is Result.Error) {
-                        appContext.getString(R.string.settings_recording_reconcile_failed, result.message)
-                    } else {
-                        appContext.getString(R.string.settings_recording_reconcile_complete)
-                    }
-                )
-            }
-        }
+        recordingActions.reconcileRecordings(viewModelScope)
     }
 
     fun updateRecordingFolder(treeUri: String?, displayName: String?) {
-        viewModelScope.launch {
-            val current = _uiState.value.recordingStorageState
-            val result = recordingManager.updateStorageConfig(
-                RecordingStorageConfig(
-                    treeUri = treeUri,
-                    displayName = displayName,
-                    fileNamePattern = current.fileNamePattern,
-                    retentionDays = current.retentionDays,
-                    maxSimultaneousRecordings = current.maxSimultaneousRecordings
-                )
-            )
-            _uiState.update {
-                it.copy(
-                    userMessage = if (result is Result.Error) {
-                        appContext.getString(R.string.settings_recording_storage_update_failed, result.message)
-                    } else {
-                        appContext.getString(R.string.settings_recording_storage_updated)
-                    }
-                )
-            }
-        }
+        recordingActions.updateRecordingFolder(viewModelScope, treeUri, displayName)
     }
 
     fun updateRecordingFileNamePattern(pattern: String) {
-        viewModelScope.launch {
-            val current = _uiState.value.recordingStorageState
-            val result = recordingManager.updateStorageConfig(
-                RecordingStorageConfig(
-                    treeUri = current.treeUri,
-                    displayName = current.displayName,
-                    fileNamePattern = pattern,
-                    retentionDays = current.retentionDays,
-                    maxSimultaneousRecordings = current.maxSimultaneousRecordings
-                )
-            )
-            _uiState.update {
-                it.copy(
-                    userMessage = if (result is Result.Error) {
-                        appContext.getString(R.string.settings_recording_pattern_failed, result.message)
-                    } else {
-                        appContext.getString(R.string.settings_recording_pattern_saved)
-                    }
-                )
-            }
-        }
+        recordingActions.updateRecordingFileNamePattern(viewModelScope, pattern)
     }
 
     fun updateRecordingRetentionDays(retentionDays: Int?) {
-        viewModelScope.launch {
-            val current = _uiState.value.recordingStorageState
-            val result = recordingManager.updateStorageConfig(
-                RecordingStorageConfig(
-                    treeUri = current.treeUri,
-                    displayName = current.displayName,
-                    fileNamePattern = current.fileNamePattern,
-                    retentionDays = retentionDays,
-                    maxSimultaneousRecordings = current.maxSimultaneousRecordings
-                )
-            )
-            _uiState.update {
-                it.copy(
-                    userMessage = if (result is Result.Error) {
-                        appContext.getString(R.string.settings_recording_retention_failed, result.message)
-                    } else {
-                        appContext.getString(R.string.settings_recording_retention_saved)
-                    }
-                )
-            }
-        }
+        recordingActions.updateRecordingRetentionDays(viewModelScope, retentionDays)
     }
 
     fun updateRecordingMaxSimultaneous(maxSimultaneousRecordings: Int) {
-        viewModelScope.launch {
-            val current = _uiState.value.recordingStorageState
-            val result = recordingManager.updateStorageConfig(
-                RecordingStorageConfig(
-                    treeUri = current.treeUri,
-                    displayName = current.displayName,
-                    fileNamePattern = current.fileNamePattern,
-                    retentionDays = current.retentionDays,
-                    maxSimultaneousRecordings = maxSimultaneousRecordings
-                )
-            )
-            _uiState.update {
-                it.copy(
-                    userMessage = if (result is Result.Error) {
-                        appContext.getString(R.string.settings_recording_concurrency_failed, result.message)
-                    } else {
-                        appContext.getString(R.string.settings_recording_concurrency_saved)
-                    }
-                )
-            }
-        }
+        recordingActions.updateRecordingMaxSimultaneous(viewModelScope, maxSimultaneousRecordings)
     }
 
     // ── EPG Source Management ────────────────────────────────────────
 
     fun loadEpgSources() {
-        viewModelScope.launch {
-            epgSourceRepository.getAllSources().collect { sources ->
-                _uiState.update { it.copy(epgSources = sources) }
-            }
-        }
+        epgActions.loadEpgSources(viewModelScope)
     }
 
     fun loadEpgAssignments(providerId: Long) {
-        viewModelScope.launch {
-            epgSourceRepository.getAssignmentsForProvider(providerId).collect { assignments ->
-                val summary = epgSourceRepository.getResolutionSummary(providerId)
-                _uiState.update {
-                    it.copy(
-                        epgSourceAssignments = it.epgSourceAssignments + (providerId to assignments),
-                        epgResolutionSummaries = it.epgResolutionSummaries + (providerId to summary)
-                    )
-                }
-            }
-        }
+        epgActions.loadEpgAssignments(viewModelScope, providerId)
     }
 
     fun addEpgSource(name: String, url: String) {
-        viewModelScope.launch {
-            val result = epgSourceRepository.addSource(name, url)
-            if (result is Result.Error) {
-                _uiState.update { it.copy(userMessage = result.message) }
-            }
-        }
+        epgActions.addEpgSource(viewModelScope, name, url)
     }
 
     fun deleteEpgSource(sourceId: Long) {
-        viewModelScope.launch {
-            val affectedProviders = loadedProvidersForSource(sourceId)
-            epgSourceRepository.deleteSource(sourceId)
-            refreshLoadedResolutionSummaries(affectedProviders)
-        }
+        epgActions.deleteEpgSource(viewModelScope, sourceId)
     }
 
     fun toggleEpgSourceEnabled(sourceId: Long, enabled: Boolean) {
-        viewModelScope.launch {
-            val affectedProviders = loadedProvidersForSource(sourceId)
-            epgSourceRepository.setSourceEnabled(sourceId, enabled)
-            refreshLoadedResolutionSummaries(affectedProviders)
-        }
+        epgActions.toggleEpgSourceEnabled(viewModelScope, sourceId, enabled)
     }
 
     fun refreshEpgSource(sourceId: Long) {
-        viewModelScope.launch {
-            _uiState.update { it.copy(isSyncing = true) }
-            val affectedProviders = loadedProvidersForSource(sourceId)
-            val result = epgSourceRepository.refreshSource(sourceId)
-            if (result !is Result.Error) {
-                refreshLoadedResolutionSummaries(affectedProviders)
-            }
-            _uiState.update {
-                it.copy(
-                    isSyncing = false,
-                    userMessage = if (result is Result.Error) result.message else "EPG source refreshed"
-                )
-            }
-        }
+        epgActions.refreshEpgSource(viewModelScope, sourceId)
     }
 
     fun assignEpgSourceToProvider(providerId: Long, epgSourceId: Long) {
-        viewModelScope.launch {
-            val existingAssignments = _uiState.value.epgSourceAssignments[providerId].orEmpty()
-            val nextPriority = (existingAssignments.maxOfOrNull { it.priority } ?: 0) + 1
-            val result = epgSourceRepository.assignSourceToProvider(providerId, epgSourceId, nextPriority)
-            if (result is Result.Error) {
-                _uiState.update { it.copy(userMessage = result.message) }
-            } else {
-                refreshProviderEpgSummary(providerId)
-            }
-        }
+        epgActions.assignEpgSourceToProvider(viewModelScope, providerId, epgSourceId)
     }
 
     fun unassignEpgSourceFromProvider(providerId: Long, epgSourceId: Long) {
-        viewModelScope.launch {
-            epgSourceRepository.unassignSourceFromProvider(providerId, epgSourceId)
-            refreshProviderEpgSummary(providerId)
-        }
+        epgActions.unassignEpgSourceFromProvider(viewModelScope, providerId, epgSourceId)
     }
 
     fun moveEpgSourceAssignmentUp(providerId: Long, epgSourceId: Long) {
-        viewModelScope.launch {
-            val assignments = _uiState.value.epgSourceAssignments[providerId].orEmpty()
-                .sortedBy { it.priority }
-            val index = assignments.indexOfFirst { it.epgSourceId == epgSourceId }
-            if (index <= 0) return@launch
-            val current = assignments[index]
-            val previous = assignments[index - 1]
-            epgSourceRepository.updateAssignmentPriority(providerId, current.epgSourceId, previous.priority)
-            epgSourceRepository.updateAssignmentPriority(providerId, previous.epgSourceId, current.priority)
-            refreshProviderEpgSummary(providerId)
-        }
+        epgActions.moveEpgSourceAssignmentUp(viewModelScope, providerId, epgSourceId)
     }
 
     fun moveEpgSourceAssignmentDown(providerId: Long, epgSourceId: Long) {
-        viewModelScope.launch {
-            val assignments = _uiState.value.epgSourceAssignments[providerId].orEmpty()
-                .sortedBy { it.priority }
-            val index = assignments.indexOfFirst { it.epgSourceId == epgSourceId }
-            if (index == -1 || index >= assignments.lastIndex) return@launch
-            val current = assignments[index]
-            val next = assignments[index + 1]
-            epgSourceRepository.updateAssignmentPriority(providerId, current.epgSourceId, next.priority)
-            epgSourceRepository.updateAssignmentPriority(providerId, next.epgSourceId, current.priority)
-            refreshProviderEpgSummary(providerId)
-        }
-    }
-
-    private suspend fun refreshProviderEpgSummary(providerId: Long) {
-        val summary = epgSourceRepository.getResolutionSummary(providerId)
-        _uiState.update {
-            it.copy(epgResolutionSummaries = it.epgResolutionSummaries + (providerId to summary))
-        }
-    }
-
-    private fun loadedProvidersForSource(sourceId: Long): List<Long> =
-        _uiState.value.epgSourceAssignments
-            .filterValues { assignments -> assignments.any { it.epgSourceId == sourceId } }
-            .keys
-            .toList()
-
-    private suspend fun refreshLoadedResolutionSummaries(providerIds: Iterable<Long>) {
-        providerIds
-            .asSequence()
-            .distinct()
-            .forEach { providerId ->
-                refreshProviderEpgSummary(providerId)
-            }
-    }
-
-    private fun buildCapabilitySummary(provider: Provider): String {
-        return when (provider.type) {
-            ProviderType.XTREAM_CODES -> {
-                if (provider.epgUrl.isNotBlank()) {
-                    appContext.getString(R.string.settings_capability_xtream_with_epg)
-                } else {
-                    appContext.getString(R.string.settings_capability_xtream_without_epg)
-                }
-            }
-            ProviderType.M3U -> {
-                if (provider.epgUrl.isNotBlank()) {
-                    appContext.getString(R.string.settings_capability_m3u_with_epg)
-                } else {
-                    appContext.getString(R.string.settings_capability_m3u_without_epg)
-                }
-            }
-        }
+        epgActions.moveEpgSourceAssignmentDown(viewModelScope, providerId, epgSourceId)
     }
 }
-
-data class ProviderDiagnosticsUiModel(
-    val lastSyncStatus: String = "NONE",
-    val lastLiveSync: Long = 0L,
-    val lastMovieSync: Long = 0L,
-    val lastMovieAttempt: Long = 0L,
-    val lastMovieSuccess: Long = 0L,
-    val lastMoviePartial: Long = 0L,
-    val lastSeriesSync: Long = 0L,
-    val lastEpgSync: Long = 0L,
-    val liveCount: Int = 0,
-    val movieCount: Int = 0,
-    val seriesCount: Int = 0,
-    val epgCount: Int = 0,
-    val movieSyncMode: VodSyncMode = VodSyncMode.UNKNOWN,
-    val movieWarningsCount: Int = 0,
-    val movieCatalogStale: Boolean = false,
-    val capabilitySummary: String = "",
-    val sourceLabel: String = "",
-    val expirySummary: String = "",
-    val connectionSummary: String = "",
-    val archiveSummary: String = ""
-)
-
-data class SettingsUiState(
-    val providers: List<Provider> = emptyList(),
-    val combinedProfiles: List<CombinedM3uProfile> = emptyList(),
-    val availableM3uProviders: List<Provider> = emptyList(),
-    val activeProviderId: Long? = null,
-    val activeLiveSource: ActiveLiveSource? = null,
-    val isSyncing: Boolean = false,
-    val userMessage: String? = null,
-    val syncWarningsByProvider: Map<Long, List<String>> = emptyMap(),
-    val diagnosticsByProvider: Map<Long, ProviderDiagnosticsUiModel> = emptyMap(),
-    val parentalControlLevel: Int = 0,
-    val hasParentalPin: Boolean = false,
-    val appLanguage: String = "system",
-    val preferredAudioLanguage: String = "auto",
-    val playerMediaSessionEnabled: Boolean = true,
-    val playerDecoderMode: DecoderMode = DecoderMode.AUTO,
-    val playerPlaybackSpeed: Float = 1f,
-    val playerControlsTimeoutSeconds: Int = 5,
-    val playerLiveOverlayTimeoutSeconds: Int = 4,
-    val playerNoticeTimeoutSeconds: Int = 6,
-    val playerDiagnosticsTimeoutSeconds: Int = 15,
-    val subtitleTextScale: Float = 1f,
-    val subtitleTextColor: Int = 0xFFFFFFFF.toInt(),
-    val subtitleBackgroundColor: Int = 0x80000000.toInt(),
-    val wifiMaxVideoHeight: Int? = null,
-    val ethernetMaxVideoHeight: Int? = null,
-    val lastSpeedTest: InternetSpeedTestUiModel? = null,
-    val isRunningInternetSpeedTest: Boolean = false,
-    val backupPreview: BackupPreview? = null,
-    val pendingBackupUri: String? = null,
-    val backupImportPlan: BackupImportPlan = BackupImportPlan(),
-    val recordingItems: List<RecordingItem> = emptyList(),
-    val recordingStorageState: RecordingStorageState = RecordingStorageState(),
-    val isIncognitoMode: Boolean = false,
-    val useXtreamTextClassification: Boolean = true,
-    val liveTvChannelMode: LiveTvChannelMode = LiveTvChannelMode.PRO,
-    val showLiveSourceSwitcher: Boolean = false,
-    val liveTvCategoryFilters: List<String> = emptyList(),
-    val liveTvQuickFilterVisibilityMode: LiveTvQuickFilterVisibilityMode = LiveTvQuickFilterVisibilityMode.ALWAYS_VISIBLE,
-    val liveChannelNumberingMode: ChannelNumberingMode = ChannelNumberingMode.GROUP,
-    val vodViewMode: VodViewMode = VodViewMode.MODERN,
-    val preventStandbyDuringPlayback: Boolean = true,
-    val categorySortModes: Map<ContentType, CategorySortMode> = emptyMap(),
-    val hiddenCategories: List<Category> = emptyList(),
-    val epgSources: List<com.streamvault.domain.model.EpgSource> = emptyList(),
-    val epgSourceAssignments: Map<Long, List<com.streamvault.domain.model.ProviderEpgSourceAssignment>> = emptyMap(),
-    val epgResolutionSummaries: Map<Long, EpgResolutionSummary> = emptyMap(),
-    val autoCheckAppUpdates: Boolean = true,
-    val isCheckingForUpdates: Boolean = false,
-    val appUpdate: AppUpdateUiModel = AppUpdateUiModel()
-)
-
-private fun AppUpdateUiModel.toReleaseInfoOrNull(): GitHubReleaseInfo? {
-    val versionName = latestVersionName ?: return null
-    val releaseUrl = releaseUrl ?: return null
-    return GitHubReleaseInfo(
-        versionName = versionName,
-        versionCode = latestVersionCode,
-        releaseUrl = releaseUrl,
-        downloadUrl = downloadUrl,
-        releaseNotes = releaseNotes,
-        publishedAt = publishedAt
-    )
-}
-
-private fun AppUpdateUiModel.withDownloadState(downloadState: AppUpdateDownloadState): AppUpdateUiModel {
-    return copy(
-        downloadStatus = downloadState.status,
-        downloadedVersionName = downloadState.versionName
-    )
-}
-
-private fun AppUpdateUiModel.toDownloadState(): AppUpdateDownloadState {
-    return AppUpdateDownloadState(
-        status = downloadStatus,
-        versionName = downloadedVersionName
-    )
-}
-
-private fun SettingsPreferenceSnapshot.toCachedAppUpdateUiModel(): AppUpdateUiModel {
-    val versionName = cachedAppUpdateVersionName
-    return AppUpdateUiModel(
-        latestVersionName = versionName,
-        latestVersionCode = cachedAppUpdateVersionCode,
-        releaseUrl = cachedAppUpdateReleaseUrl,
-        downloadUrl = cachedAppUpdateDownloadUrl,
-        releaseNotes = cachedAppUpdateReleaseNotes,
-        publishedAt = cachedAppUpdatePublishedAt,
-        isUpdateAvailable = versionName?.let {
-            if (cachedAppUpdateVersionCode != null && cachedAppUpdateVersionCode > BuildConfig.VERSION_CODE) {
-                true
-            } else {
-                compareVersionNamesStatic(it, BuildConfig.VERSION_NAME) > 0
-            }
-        } ?: false,
-        lastCheckedAt = lastAppUpdateCheckAt
-    )
-}
-
-private fun compareVersionNamesStatic(left: String, right: String): Int {
-    val leftParts = left.removePrefix("v").split('.')
-    val rightParts = right.removePrefix("v").split('.')
-    val length = max(leftParts.size, rightParts.size)
-    for (index in 0 until length) {
-        val leftValue = leftParts.getOrNull(index)?.toIntOrNull() ?: 0
-        val rightValue = rightParts.getOrNull(index)?.toIntOrNull() ?: 0
-        if (leftValue != rightValue) {
-            return leftValue.compareTo(rightValue)
-        }
-    }
-    return 0
-}
-
-private fun ProviderSyncSelection.label(application: Application): String = when (this) {
-    ProviderSyncSelection.ALL -> application.getString(R.string.settings_sync_option_all)
-    ProviderSyncSelection.FAST -> application.getString(R.string.settings_sync_option_fast)
-    ProviderSyncSelection.TV -> application.getString(R.string.settings_sync_option_tv)
-    ProviderSyncSelection.MOVIES -> application.getString(R.string.settings_sync_option_movies)
-    ProviderSyncSelection.SERIES -> application.getString(R.string.settings_sync_option_series)
-    ProviderSyncSelection.EPG -> application.getString(R.string.settings_sync_option_epg)
-}
-
-data class InternetSpeedTestUiModel(
-    val megabitsPerSecond: Double,
-    val measuredAtMs: Long,
-    val transportLabel: String,
-    val recommendedMaxVideoHeight: Int?,
-    val isEstimated: Boolean
-)
-
-private data class CategoryManagementSnapshot(
-    val categorySortModes: Map<ContentType, CategorySortMode> = emptyMap(),
-    val hiddenCategories: List<Category> = emptyList()
-)

@@ -1,0 +1,382 @@
+package com.streamvault.data.sync
+
+import android.util.Log
+import com.streamvault.data.remote.dto.XtreamCategory
+import com.streamvault.data.remote.xtream.XtreamAuthenticationException
+import com.streamvault.data.remote.xtream.XtreamNetworkException
+import com.streamvault.data.remote.xtream.XtreamParsingException
+import com.streamvault.data.remote.xtream.XtreamRequestException
+import com.streamvault.data.remote.xtream.XtreamResponseTooLargeException
+import com.streamvault.domain.model.Provider
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeout
+import java.io.IOException
+import kotlin.random.Random
+
+private const val XTREAM_SUPPORT_TAG = "SyncManager"
+
+internal class SyncManagerXtreamSupport(
+    private val adaptiveSyncPolicy: XtreamAdaptiveSyncPolicy,
+    private val shouldRememberSequentialPreference: (Throwable) -> Boolean,
+    private val sanitizeThrowableMessage: (Throwable?) -> String,
+    private val progress: (Long, ((String) -> Unit)?, String) -> Unit,
+    private val movieRequestTimeoutMillis: Long,
+    private val seriesRequestTimeoutMillis: Long,
+    private val recoveryAbortWarningSuffix: String
+) {
+    suspend fun <T> executeCategoryRecoveryPlan(
+        provider: Provider,
+        categories: List<XtreamCategory>,
+        initialConcurrency: Int,
+        sectionLabel: String,
+        sequentialModeWarning: String,
+        onProgress: ((String) -> Unit)?,
+        fetch: suspend (XtreamCategory) -> TimedCategoryOutcome<T>
+    ): CategoryExecutionPlan<T> {
+        if (categories.isEmpty()) {
+            return CategoryExecutionPlan(emptyList())
+        }
+
+        val outcomes = mutableListOf<TimedCategoryOutcome<T>>()
+        val warnings = mutableListOf<String>()
+        var nextIndex = 0
+        var forceSequential = initialConcurrency <= 1
+        var consecutiveSequentialStressFailures = 0
+        var stoppedEarly = false
+
+        while (nextIndex < categories.size && !stoppedEarly) {
+            val windowConcurrency = if (forceSequential) 1 else initialConcurrency
+            val window = categories.subList(nextIndex, minOf(nextIndex + windowConcurrency, categories.size))
+            val windowOutcomes = coroutineScope {
+                window.map { category ->
+                    async { fetch(category) }
+                }.awaitAll()
+            }
+            outcomes += windowOutcomes
+            nextIndex += window.size
+
+            val completed = outcomes.size
+            progress(provider.id, onProgress, "Downloading $sectionLabel by category $completed/${categories.size}...")
+
+            if (!forceSequential && shouldRecoverRemainingCategoryRequests(categories.size, completed, outcomes.map { it.outcome })) {
+                forceSequential = true
+                warnings += sequentialModeWarning
+                Log.w(
+                    XTREAM_SUPPORT_TAG,
+                    "Xtream $sectionLabel category sync is switching remaining categories to sequential mode for provider ${provider.id} after $completed/${categories.size} categories."
+                )
+            }
+
+            if (forceSequential) {
+                windowOutcomes.forEach { timedOutcome ->
+                    val isStressFailure = (timedOutcome.outcome as? CategoryFetchOutcome.Failure)
+                        ?.error
+                        ?.let(shouldRememberSequentialPreference)
+                        ?: false
+                    consecutiveSequentialStressFailures = if (isStressFailure) {
+                        consecutiveSequentialStressFailures + 1
+                    } else {
+                        0
+                    }
+                }
+                if (consecutiveSequentialStressFailures >= 3 && nextIndex < categories.size) {
+                    warnings += "$sectionLabel $recoveryAbortWarningSuffix"
+                    Log.w(
+                        XTREAM_SUPPORT_TAG,
+                        "Xtream $sectionLabel category sync stopped early for provider ${provider.id} after repeated sequential stress failures. completed=$completed total=${categories.size}"
+                    )
+                    stoppedEarly = true
+                }
+            }
+        }
+
+        return CategoryExecutionPlan(outcomes = outcomes, warnings = warnings.distinct())
+    }
+
+    fun <T> evaluatePageRecoveryPlan(
+        provider: Provider,
+        sectionLabel: String,
+        pageWindow: List<Int>,
+        outcomes: List<TimedPageOutcome<T>>,
+        sequentialModeWarning: String
+    ): PageExecutionPlan<T> {
+        if (pageWindow.isEmpty()) {
+            return PageExecutionPlan(emptyList())
+        }
+        val warnings = mutableListOf<String>()
+        val stressFailures = outcomes.count { outcome ->
+            (outcome.outcome as? PageFetchOutcome.Failure)
+                ?.error
+                ?.let(shouldRememberSequentialPreference)
+                ?: false
+        }
+        val stoppedEarly = stressFailures >= minOf(3, pageWindow.size)
+        val shouldDegrade = !stoppedEarly && pageWindow.size > 1 && stressFailures >= minOf(2, pageWindow.size)
+        if (shouldDegrade) {
+            warnings += sequentialModeWarning
+            Log.w(
+                XTREAM_SUPPORT_TAG,
+                "Xtream $sectionLabel paged sync is switching remaining pages to sequential mode for provider ${provider.id} after window ${pageWindow.first()}-${pageWindow.last()}."
+            )
+        }
+        if (stoppedEarly) {
+            warnings += "$sectionLabel $recoveryAbortWarningSuffix"
+            Log.w(
+                XTREAM_SUPPORT_TAG,
+                "Xtream $sectionLabel paged sync stopped early for provider ${provider.id} after repeated stress failures in window ${pageWindow.first()}-${pageWindow.last()}."
+            )
+        }
+        return PageExecutionPlan(outcomes = outcomes, warnings = warnings.distinct(), stoppedEarly = stoppedEarly)
+    }
+
+    suspend fun <T> retryTransient(
+        maxAttempts: Int = 3,
+        initialDelayMs: Long = 700L,
+        block: suspend () -> T
+    ): T {
+        var attempt = 0
+        var delayMs = initialDelayMs
+        var lastError: Exception? = null
+
+        while (attempt < maxAttempts) {
+            try {
+                return block()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (t: Exception) {
+                lastError = t
+                attempt++
+                if (attempt >= maxAttempts || !isRetryable(t)) {
+                    throw t
+                }
+                delay(delayMs)
+                delayMs *= 2
+            }
+        }
+
+        throw lastError ?: IllegalStateException("Unknown sync retry failure")
+    }
+
+    suspend fun <T> attemptNonCancellation(block: suspend () -> T): Attempt<T> {
+        return try {
+            Attempt.Success(block())
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            Attempt.Failure(e)
+        }
+    }
+
+    suspend fun <T> executeXtreamRequest(
+        providerId: Long,
+        stage: XtreamAdaptiveSyncPolicy.Stage,
+        block: suspend () -> T
+    ): T {
+        adaptiveSyncPolicy.awaitTurn(providerId, stage)
+        return try {
+            val timeoutMs = adaptiveSyncPolicy.timeoutFor(providerId, stage)
+            val result = if (timeoutMs != null) {
+                withTimeout(timeoutMs) {
+                    block()
+                }
+            } else {
+                block()
+            }
+            adaptiveSyncPolicy.recordSuccess(providerId)
+            result
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            adaptiveSyncPolicy.recordFailure(providerId, e)
+            throw e
+        }
+    }
+
+    suspend fun <T> withMovieRequestTimeout(
+        requestLabel: String,
+        block: suspend () -> T
+    ): T {
+        return withRequestTimeout(movieRequestTimeoutMillis, requestLabel, block)
+    }
+
+    suspend fun <T> withSeriesRequestTimeout(
+        requestLabel: String,
+        block: suspend () -> T
+    ): T {
+        return withRequestTimeout(seriesRequestTimeoutMillis, requestLabel, block)
+    }
+
+    suspend fun <T> retryXtreamCatalogTransient(providerId: Long, block: suspend () -> T): T {
+        var attempt = 0
+        var lastError: Exception? = null
+
+        while (attempt < 3) {
+            try {
+                return block()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (t: Exception) {
+                lastError = t
+                attempt++
+                if (attempt >= 3 || !isXtreamCatalogRetryable(t, attempt)) {
+                    throw t
+                }
+                val delayMs = adaptiveSyncPolicy.retryDelayFor(providerId, attempt)
+                val jitterMs = Random.nextLong(0L, (delayMs / 3L).coerceAtLeast(1L) + 1L)
+                delay(delayMs + jitterMs)
+            }
+        }
+
+        throw lastError ?: IllegalStateException("Unknown Xtream catalog retry failure")
+    }
+
+    fun logXtreamCatalogFallback(
+        provider: Provider,
+        section: String,
+        stage: String,
+        elapsedMs: Long,
+        itemCount: Int?,
+        error: Throwable?,
+        nextStep: String
+    ) {
+        val reason = when {
+            error != null -> "${error::class.java.simpleName}: ${sanitizeThrowableMessage(error)}"
+            itemCount == 0 -> "empty result"
+            else -> "no usable data"
+        }
+        Log.w(
+            XTREAM_SUPPORT_TAG,
+            "Xtream $section $stage failed for provider ${provider.id} after ${elapsedMs}ms ($reason). Switching to $nextStep."
+        )
+    }
+
+    suspend fun <T> continueFailedPageOutcomes(
+        provider: Provider,
+        timedOutcomes: List<TimedPageOutcome<T>>,
+        fetchSequentially: suspend (Int) -> TimedPageOutcome<T>
+    ): List<TimedPageOutcome<T>> {
+        val failedPages = timedOutcomes
+            .filter { it.outcome is PageFetchOutcome.Failure }
+            .map { it.page }
+        if (failedPages.isEmpty()) {
+            return timedOutcomes
+        }
+        val replacements = LinkedHashMap<Int, TimedPageOutcome<T>>()
+        failedPages.forEach { page ->
+            replacements[page] = fetchSequentially(page)
+        }
+        return timedOutcomes.map { existing ->
+            replacements[existing.page] ?: existing
+        }.also {
+            Log.i(
+                XTREAM_SUPPORT_TAG,
+                "Xtream continuation fallback kept ${timedOutcomes.size - failedPages.size} successful page results for provider ${provider.id} and retried only ${failedPages.size} failed pages."
+            )
+        }
+    }
+
+    suspend fun <T> continueFailedCategoryOutcomes(
+        provider: Provider,
+        timedOutcomes: List<TimedCategoryOutcome<T>>,
+        fetchSequentially: suspend (XtreamCategory) -> TimedCategoryOutcome<T>
+    ): List<TimedCategoryOutcome<T>> {
+        val failedCategories = timedOutcomes
+            .filter { it.outcome is CategoryFetchOutcome.Failure }
+            .map { it.category }
+        if (failedCategories.isEmpty()) {
+            return timedOutcomes
+        }
+        val replacements = LinkedHashMap<String, TimedCategoryOutcome<T>>()
+        failedCategories.forEach { category ->
+            replacements[category.categoryId] = fetchSequentially(category)
+        }
+        return timedOutcomes.map { existing ->
+            replacements[existing.category.categoryId] ?: existing
+        }.also {
+            Log.i(
+                XTREAM_SUPPORT_TAG,
+                "Xtream continuation fallback kept ${timedOutcomes.size - failedCategories.size} successful category results for provider ${provider.id} and retried only ${failedCategories.size} failed categories."
+            )
+        }
+    }
+
+    private fun <T> shouldRecoverRemainingCategoryRequests(
+        totalCategories: Int,
+        processedCategories: Int,
+        outcomes: List<CategoryFetchOutcome<T>>
+    ): Boolean {
+        if (processedCategories >= totalCategories || processedCategories <= 1) {
+            return false
+        }
+        val processedOutcomes = outcomes.take(processedCategories)
+        val failures = processedOutcomes.count { it is CategoryFetchOutcome.Failure }
+        val stressFailures = processedOutcomes.count { outcome ->
+            outcome is CategoryFetchOutcome.Failure && shouldRememberSequentialPreference(outcome.error)
+        }
+        val recentWindow = processedOutcomes.takeLast(minOf(4, processedOutcomes.size))
+        val recentStressFailures = recentWindow.count { outcome ->
+            outcome is CategoryFetchOutcome.Failure && shouldRememberSequentialPreference(outcome.error)
+        }
+        val failureRatio = failures.toFloat() / processedCategories.toFloat()
+        return recentStressFailures >= minOf(2, recentWindow.size) ||
+            stressFailures >= minOf(3, processedCategories) ||
+            (processedCategories >= 6 && failureRatio >= 0.34f)
+    }
+
+    private fun isRetryable(error: Throwable): Boolean {
+        if (error is XtreamAuthenticationException) return false
+        if (error is XtreamParsingException) return false
+        if (error is XtreamRequestException) return false
+        if (error is XtreamNetworkException) return true
+        if (error is IOException) return true
+
+        val message = error.message.orEmpty().lowercase()
+        return message.contains("timeout") ||
+            message.contains("timed out") ||
+            message.contains("unable to resolve host") ||
+            message.contains("connection reset") ||
+            message.contains("connect") ||
+            message.contains("network")
+    }
+
+    private fun isXtreamCatalogRetryable(error: Throwable, attempt: Int): Boolean {
+        return when (error) {
+            is XtreamAuthenticationException -> false
+            is XtreamResponseTooLargeException -> false
+            is XtreamParsingException -> attempt == 1
+            is XtreamRequestException ->
+                error.statusCode in setOf(403, 408, 409, 429) || error.statusCode in 500..599
+            is XtreamNetworkException -> true
+            is IOException -> true
+            else -> isRetryable(error)
+        }
+    }
+
+    private suspend fun <T> withRequestTimeout(
+        timeoutMillis: Long,
+        requestLabel: String,
+        block: suspend () -> T
+    ): T {
+        return try {
+            withTimeout(timeoutMillis) {
+                block()
+            }
+        } catch (e: kotlinx.coroutines.TimeoutCancellationException) {
+            throw IOException("Timed out after 60 seconds while loading $requestLabel", e)
+        }
+    }
+}
+
+internal fun <T> com.streamvault.domain.model.Result<T>.getOrThrow(resourceName: String): T {
+    return when (this) {
+        is com.streamvault.domain.model.Result.Success -> data
+        is com.streamvault.domain.model.Result.Error ->
+            throw exception ?: IllegalStateException("Failed to fetch $resourceName: $message")
+        is com.streamvault.domain.model.Result.Loading ->
+            throw Exception("Unexpected loading state for $resourceName")
+    }
+}

@@ -20,6 +20,8 @@ import com.streamvault.domain.repository.ProviderRepository
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -39,37 +41,41 @@ class TvInputChannelSyncManager @Inject constructor(
     }
 
     suspend fun refreshTvInputCatalogResult(): Result<Unit> = withContext(Dispatchers.IO) {
-        runCatching {
-            if (!context.isTelevisionDevice()) {
-                return@runCatching
-            }
-            val provider = providerRepository.getActiveProvider().first()
-            if (provider == null) {
-                deleteManagedChannels()
-                return@runCatching
-            }
+        syncMutex.withLock {
+            runCatching {
+                if (!context.isTelevisionDevice()) {
+                    return@runCatching
+                }
+                val provider = providerRepository.getActiveProvider().first()
+                if (provider == null) {
+                    deleteManagedChannels()
+                    return@runCatching
+                }
 
-            val channels = channelRepository.getChannels(provider.id).first()
-            val existingChannelIds = loadExistingChannels()
-            val targetKeys = channels.mapTo(mutableSetOf(), ::channelKey)
+                val channels = channelRepository.getChannels(provider.id).first()
+                val existingChannelIds = loadExistingChannels().toMutableMap()
+                val targetKeys = channels.mapTo(mutableSetOf(), ::channelKey)
 
-            existingChannelIds
-                .filterKeys { it !in targetKeys }
-                .values
-                .forEach(::deleteChannel)
+                existingChannelIds
+                    .filterKeys { it !in targetKeys }
+                    .values
+                    .forEach(::deleteChannel)
 
-            val programsByEpgId = loadPrograms(provider.id, channels)
+                val programsByEpgId = loadPrograms(provider.id, channels)
 
-            channels.forEach { channel ->
-                val key = channelKey(channel)
-                val channelId = existingChannelIds[key] ?: insertChannel(provider.id, channel) ?: return@forEach
-                updateChannel(channelId, provider.id, channel)
-                replacePrograms(
-                    channelId = channelId,
-                    programs = programsByEpgId[channel.epgChannelId].orEmpty(),
-                    providerId = provider.id,
-                    channel = channel
-                )
+                channels.forEach { channel ->
+                    val key = channelKey(channel)
+                    val channelId = ensureChannel(context.contentResolver, existingChannelIds[key], provider.id, channel)
+                        ?: return@forEach
+                    existingChannelIds[key] = channelId
+                    replacePrograms(
+                        channelId = channelId,
+                        programs = programsByEpgId[channel.epgChannelId].orEmpty(),
+                        providerId = provider.id,
+                        channel = channel,
+                        existingChannelIds = existingChannelIds
+                    )
+                }
             }
         }
     }
@@ -119,19 +125,45 @@ class TvInputChannelSyncManager @Inject constructor(
         return ContentUris.parseId(uri)
     }
 
-    private fun updateChannel(channelId: Long, providerId: Long, channel: Channel) {
-        context.contentResolver.update(
+    private fun updateChannel(channelId: Long, providerId: Long, channel: Channel): Boolean {
+        val rows = context.contentResolver.update(
             ContentUris.withAppendedId(TvContract.Channels.CONTENT_URI, channelId),
             buildChannelValues(providerId, channel),
             null,
             null
         )
+        return rows > 0 && channelExists(context.contentResolver, channelId)
     }
 
-    private fun replacePrograms(channelId: Long, programs: List<Program>, providerId: Long, channel: Channel) {
+    private fun ensureChannel(
+        resolver: ContentResolver,
+        existingChannelId: Long?,
+        providerId: Long,
+        channel: Channel
+    ): Long? {
+        val refreshedId = existingChannelId
+            ?.takeIf { channelExists(resolver, it) }
+            ?.takeIf { updateChannel(it, providerId, channel) }
+        return refreshedId ?: insertChannel(providerId, channel)
+    }
+
+    private fun replacePrograms(
+        channelId: Long,
+        programs: List<Program>,
+        providerId: Long,
+        channel: Channel,
+        existingChannelIds: MutableMap<String, Long>
+    ) {
         val resolver = context.contentResolver
+        var activeChannelId = channelId
+
+        if (!channelExists(resolver, activeChannelId)) {
+            activeChannelId = ensureChannel(resolver, null, providerId, channel) ?: return
+            existingChannelIds[channelKey(channel)] = activeChannelId
+        }
+
         resolver.query(
-            TvContract.buildProgramsUriForChannel(channelId),
+            TvContract.buildProgramsUriForChannel(activeChannelId),
             arrayOf(BaseColumns._ID),
             null,
             null,
@@ -151,12 +183,35 @@ class TvInputChannelSyncManager @Inject constructor(
             .sortedBy { it.startTime }
             .take(MAX_PROGRAMS_PER_CHANNEL)
             .forEach { program ->
-                resolver.insert(
-                    TvContract.Programs.CONTENT_URI,
-                    buildProgramValues(channelId, providerId, channel, program)
-                )
+                try {
+                    resolver.insert(
+                        TvContract.Programs.CONTENT_URI,
+                        buildProgramValues(activeChannelId, providerId, channel, program)
+                    )
+                } catch (throwable: Throwable) {
+                    if (!channelExists(resolver, activeChannelId)) {
+                        val recoveredChannelId = ensureChannel(resolver, null, providerId, channel) ?: return@forEach
+                        existingChannelIds[channelKey(channel)] = recoveredChannelId
+                        activeChannelId = recoveredChannelId
+                        resolver.insert(
+                            TvContract.Programs.CONTENT_URI,
+                            buildProgramValues(activeChannelId, providerId, channel, program)
+                        )
+                    } else {
+                        throw throwable
+                    }
+                }
             }
     }
+
+    private fun channelExists(resolver: ContentResolver, channelId: Long): Boolean =
+        resolver.query(
+            ContentUris.withAppendedId(TvContract.Channels.CONTENT_URI, channelId),
+            arrayOf(BaseColumns._ID),
+            null,
+            null,
+            null
+        )?.use { it.moveToFirst() } == true
 
     private fun buildChannelValues(providerId: Long, channel: Channel): ContentValues = ContentValues().apply {
         put(CHANNEL_COLUMN_INPUT_ID, inputId())
@@ -238,5 +293,6 @@ class TvInputChannelSyncManager @Inject constructor(
         const val PROGRAM_LOOKBACK_MS = 3 * 60 * 60 * 1000L
         const val PROGRAM_LOOKAHEAD_MS = 18 * 60 * 60 * 1000L
         const val ENTRY_SEPARATOR = ":"
+        val syncMutex = Mutex()
     }
 }

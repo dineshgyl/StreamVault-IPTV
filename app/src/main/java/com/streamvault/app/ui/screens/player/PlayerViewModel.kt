@@ -1,6 +1,5 @@
 package com.streamvault.app.ui.screens.player
 
-import android.graphics.Bitmap
 import android.os.SystemClock
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
@@ -49,73 +48,12 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
 import javax.inject.Inject
 import java.util.Locale
-
-data class ResumePromptState(
-    val show: Boolean = false,
-    val positionMs: Long = 0L,
-    val title: String = ""
-)
-
-data class NumericChannelInputState(
-    val input: String = "",
-    val matchedChannelName: String? = null,
-    val invalid: Boolean = false
-)
-
-data class PlayerNoticeState(
-    val message: String = "",
-    val recoveryType: PlayerRecoveryType = PlayerRecoveryType.UNKNOWN,
-    val actions: List<PlayerNoticeAction> = emptyList(),
-    val isRetryNotice: Boolean = false
-)
-
-data class SeekPreviewState(
-    val visible: Boolean = false,
-    val positionMs: Long = 0L,
-    val frameBitmap: Bitmap? = null,
-    val artworkUrl: String? = null,
-    val title: String = "",
-    val isLoading: Boolean = false
-)
-
-data class PlayerDiagnosticsUiState(
-    val providerName: String = "",
-    val providerSourceLabel: String = "",
-    val decoderMode: DecoderMode = DecoderMode.AUTO,
-    val streamClassLabel: String = "Primary",
-    val playbackStateLabel: String = "Idle",
-    val alternativeStreamCount: Int = 0,
-    val channelErrorCount: Int = 0,
-    val archiveSupportLabel: String = "",
-    val lastFailureReason: String? = null,
-    val recentRecoveryActions: List<String> = emptyList(),
-    val troubleshootingHints: List<String> = emptyList()
-)
-
-enum class PlayerRecoveryType {
-    NETWORK,
-    SOURCE,
-    DECODER,
-    DRM,
-    CATCH_UP,
-    BUFFER_TIMEOUT,
-    UNKNOWN
-}
-
-enum class PlayerNoticeAction {
-    RETRY,
-    LAST_CHANNEL,
-    ALTERNATE_STREAM,
-    OPEN_GUIDE
-}
-
-enum class AspectRatio(val modeName: String) {
-    FIT("Fit"),
-    FILL("Stretch"),
-    ZOOM("Zoom")
-}
+import okhttp3.OkHttpClient
+import okhttp3.Request
 
 @HiltViewModel
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -123,22 +61,23 @@ class PlayerViewModel @Inject constructor(
     @param:MainPlayerEngine
     val playerEngine: PlayerEngine,
     private val epgRepository: EpgRepository,
-    private val channelRepository: ChannelRepository,
-    private val movieRepository: MovieRepository,
+    internal val channelRepository: ChannelRepository,
+    internal val movieRepository: MovieRepository,
     private val seriesRepository: SeriesRepository,
     private val favoriteRepository: com.streamvault.domain.repository.FavoriteRepository,
-    private val playbackHistoryRepository: PlaybackHistoryRepository,
+    internal val playbackHistoryRepository: PlaybackHistoryRepository,
     private val providerRepository: com.streamvault.domain.repository.ProviderRepository,
     private val preferencesRepository: com.streamvault.data.preferences.PreferencesRepository,
     private val getCustomCategories: GetCustomCategories,
     private val markAsWatched: MarkAsWatched,
-    private val scheduleRecordingUseCase: ScheduleRecording,
-    private val recordingManager: RecordingManager,
+    internal val scheduleRecordingUseCase: ScheduleRecording,
+    internal val recordingManager: RecordingManager,
     private val watchNextManager: WatchNextManager,
     private val launcherRecommendationsManager: LauncherRecommendationsManager,
-    private val castManager: CastManager,
+    internal val castManager: CastManager,
     private val xtreamStreamUrlResolver: XtreamStreamUrlResolver,
-    private val seekThumbnailProvider: SeekThumbnailProvider
+    private val seekThumbnailProvider: SeekThumbnailProvider,
+    private val okHttpClient: OkHttpClient
 ) : ViewModel() {
     companion object {
         private const val MUTE_TOGGLE_DEBOUNCE_MS = 250L
@@ -147,11 +86,11 @@ class PlayerViewModel @Inject constructor(
         private const val PLAYER_EPG_REFRESH_INTERVAL_MS = 30_000L
     }
 
-    private val _showControls = MutableStateFlow(false)
-    val showControls: StateFlow<Boolean> = _showControls.asStateFlow()
+    internal val showControlsFlow = MutableStateFlow(false)
+    val showControls: StateFlow<Boolean> = showControlsFlow.asStateFlow()
 
-    private val _showZapOverlay = MutableStateFlow(false)
-    val showZapOverlay: StateFlow<Boolean> = _showZapOverlay.asStateFlow()
+    internal val showZapOverlayFlow = MutableStateFlow(false)
+    val showZapOverlay: StateFlow<Boolean> = showZapOverlayFlow.asStateFlow()
     
     private val _currentProgram = MutableStateFlow<Program?>(null)
     val currentProgram: StateFlow<Program?> = _currentProgram.asStateFlow()
@@ -165,8 +104,8 @@ class PlayerViewModel @Inject constructor(
     private val _upcomingPrograms = MutableStateFlow<List<Program>>(emptyList())
     val upcomingPrograms: StateFlow<List<Program>> = _upcomingPrograms.asStateFlow()
 
-    private val _currentChannel = MutableStateFlow<com.streamvault.domain.model.Channel?>(null)
-    val currentChannel: StateFlow<com.streamvault.domain.model.Channel?> = _currentChannel.asStateFlow()
+    internal val currentChannelFlow = MutableStateFlow<com.streamvault.domain.model.Channel?>(null)
+    val currentChannel: StateFlow<com.streamvault.domain.model.Channel?> = currentChannelFlow.asStateFlow()
 
     private val _currentSeries = MutableStateFlow<Series?>(null)
     val currentSeries: StateFlow<Series?> = _currentSeries.asStateFlow()
@@ -177,8 +116,8 @@ class PlayerViewModel @Inject constructor(
     private val _nextEpisode = MutableStateFlow<Episode?>(null)
     val nextEpisode: StateFlow<Episode?> = _nextEpisode.asStateFlow()
 
-    private val _playbackTitle = MutableStateFlow("")
-    val playbackTitle: StateFlow<String> = _playbackTitle.asStateFlow()
+    internal val playbackTitleFlow = MutableStateFlow("")
+    val playbackTitle: StateFlow<String> = playbackTitleFlow.asStateFlow()
     
     private val _resumePrompt = MutableStateFlow(ResumePromptState())
     val resumePrompt: StateFlow<ResumePromptState> = _resumePrompt.asStateFlow()
@@ -186,41 +125,41 @@ class PlayerViewModel @Inject constructor(
     private val _aspectRatio = MutableStateFlow(AspectRatio.FIT)
     val aspectRatio: StateFlow<AspectRatio> = _aspectRatio.asStateFlow()
 
-    private val _showChannelListOverlay = MutableStateFlow(false)
-    val showChannelListOverlay: StateFlow<Boolean> = _showChannelListOverlay.asStateFlow()
+    internal val showChannelListOverlayFlow = MutableStateFlow(false)
+    val showChannelListOverlay: StateFlow<Boolean> = showChannelListOverlayFlow.asStateFlow()
 
-    private val _showEpgOverlay = MutableStateFlow(false)
-    val showEpgOverlay: StateFlow<Boolean> = _showEpgOverlay.asStateFlow()
+    internal val showEpgOverlayFlow = MutableStateFlow(false)
+    val showEpgOverlay: StateFlow<Boolean> = showEpgOverlayFlow.asStateFlow()
 
-    private val _currentChannelList = MutableStateFlow<List<com.streamvault.domain.model.Channel>>(emptyList())
-    val currentChannelList: StateFlow<List<com.streamvault.domain.model.Channel>> = _currentChannelList.asStateFlow()
+    private val currentChannelFlowList = MutableStateFlow<List<com.streamvault.domain.model.Channel>>(emptyList())
+    val currentChannelList: StateFlow<List<com.streamvault.domain.model.Channel>> = currentChannelFlowList.asStateFlow()
 
-    private val _recentChannels = MutableStateFlow<List<com.streamvault.domain.model.Channel>>(emptyList())
-    val recentChannels: StateFlow<List<com.streamvault.domain.model.Channel>> = _recentChannels.asStateFlow()
+    internal val recentChannelsFlow = MutableStateFlow<List<com.streamvault.domain.model.Channel>>(emptyList())
+    val recentChannels: StateFlow<List<com.streamvault.domain.model.Channel>> = recentChannelsFlow.asStateFlow()
 
     private val _lastVisitedCategory = MutableStateFlow<Category?>(null)
     val lastVisitedCategory: StateFlow<Category?> = _lastVisitedCategory.asStateFlow()
 
-    private val _showCategoryListOverlay = MutableStateFlow(false)
-    val showCategoryListOverlay: StateFlow<Boolean> = _showCategoryListOverlay.asStateFlow()
+    internal val showCategoryListOverlayFlow = MutableStateFlow(false)
+    val showCategoryListOverlay: StateFlow<Boolean> = showCategoryListOverlayFlow.asStateFlow()
 
-    private val _availableCategories = MutableStateFlow<List<Category>>(emptyList())
-    val availableCategories: StateFlow<List<Category>> = _availableCategories.asStateFlow()
+    internal val availableCategoriesFlow = MutableStateFlow<List<Category>>(emptyList())
+    val availableCategories: StateFlow<List<Category>> = availableCategoriesFlow.asStateFlow()
 
-    private val _activeCategoryId = MutableStateFlow(-1L)
-    val activeCategoryId: StateFlow<Long> = _activeCategoryId.asStateFlow()
+    internal val activeCategoryIdFlow = MutableStateFlow(-1L)
+    val activeCategoryId: StateFlow<Long> = activeCategoryIdFlow.asStateFlow()
 
-    private val _displayChannelNumber = MutableStateFlow(0)
-    val displayChannelNumber: StateFlow<Int> = _displayChannelNumber.asStateFlow()
+    internal val displayChannelNumberFlow = MutableStateFlow(0)
+    val displayChannelNumber: StateFlow<Int> = displayChannelNumberFlow.asStateFlow()
 
-    private val _showChannelInfoOverlay = MutableStateFlow(false)
-    val showChannelInfoOverlay: StateFlow<Boolean> = _showChannelInfoOverlay.asStateFlow()
+    internal val showChannelInfoOverlayFlow = MutableStateFlow(false)
+    val showChannelInfoOverlay: StateFlow<Boolean> = showChannelInfoOverlayFlow.asStateFlow()
 
-    private val _numericChannelInput = MutableStateFlow<NumericChannelInputState?>(null)
-    val numericChannelInput: StateFlow<NumericChannelInputState?> = _numericChannelInput.asStateFlow()
+    internal val numericChannelInputFlow = MutableStateFlow<NumericChannelInputState?>(null)
+    val numericChannelInput: StateFlow<NumericChannelInputState?> = numericChannelInputFlow.asStateFlow()
 
-    private val _showDiagnostics = MutableStateFlow(false)
-    val showDiagnostics: StateFlow<Boolean> = _showDiagnostics.asStateFlow()
+    internal val showDiagnosticsFlow = MutableStateFlow(false)
+    val showDiagnostics: StateFlow<Boolean> = showDiagnosticsFlow.asStateFlow()
 
     private val _playerNotice = MutableStateFlow<PlayerNoticeState?>(null)
     val playerNotice: StateFlow<PlayerNoticeState?> = _playerNotice.asStateFlow()
@@ -230,45 +169,68 @@ class PlayerViewModel @Inject constructor(
     val seekPreview: StateFlow<SeekPreviewState> = _seekPreview.asStateFlow()
     private val _recordingItems = MutableStateFlow<List<RecordingItem>>(emptyList())
     val recordingItems: StateFlow<List<RecordingItem>> = _recordingItems.asStateFlow()
-    private val _currentChannelRecording = MutableStateFlow<RecordingItem?>(null)
-    val currentChannelRecording: StateFlow<RecordingItem?> = _currentChannelRecording.asStateFlow()
+    private val currentChannelFlowRecording = MutableStateFlow<RecordingItem?>(null)
+    val currentChannelRecording: StateFlow<RecordingItem?> = currentChannelFlowRecording.asStateFlow()
 
-    private var channelInfoHideJob: Job? = null
-    private var liveOverlayHideJob: Job? = null
-    private var diagnosticsHideJob: Job? = null
-    private var numericInputCommitJob: Job? = null
-    private var numericInputFeedbackJob: Job? = null
+    internal var channelInfoHideJob: Job? = null
+    internal var liveOverlayHideJob: Job? = null
+    internal var diagnosticsHideJob: Job? = null
+    internal var numericInputCommitJob: Job? = null
+    internal var numericInputFeedbackJob: Job? = null
     private var playerNoticeHideJob: Job? = null
     private var mutePersistJob: Job? = null
     private var recoveryJob: Job? = null
-    private var numericInputBuffer: String = ""
-    private val triedAlternativeStreams = mutableSetOf<String>()
+    internal var numericInputBuffer: String = ""
+    internal val triedAlternativeStreams = mutableSetOf<String>()
     private val failedStreamsThisSession = mutableMapOf<String, Int>()
     private var hasRetriedWithSoftwareDecoder = false
-    private var lastRecordedLivePlaybackKey: Pair<Long, Long>? = null
+    internal var lastRecordedLivePlaybackKey: Pair<Long, Long>? = null
     private var currentStreamClassLabel: String = "Primary"
     private var prepareRequestVersion: Long = 0L
-    private var currentArtworkUrl: String? = null
+    internal var currentArtworkUrl: String? = null
     private var currentResolvedPlaybackUrl: String = ""
-    private var pendingCatchUpUrls: List<String> = emptyList()
-    private var channelNumberingMode: ChannelNumberingMode = ChannelNumberingMode.GROUP
+    internal var pendingCatchUpUrls: List<String> = emptyList()
+    internal var channelNumberingMode: ChannelNumberingMode = ChannelNumberingMode.GROUP
     private var activeEpgRequestKey: EpgRequestKey? = null
-    private var playerControlsTimeoutMs: Long = 5_000L
-    private var liveOverlayTimeoutMs: Long = 4_000L
+    internal var playerControlsTimeoutMs: Long = 5_000L
+    internal var liveOverlayTimeoutMs: Long = 4_000L
     private var playerNoticeTimeoutMs: Long = 6_000L
-    private var diagnosticsTimeoutMs: Long = 15_000L
+    internal var diagnosticsTimeoutMs: Long = 15_000L
     private var preferredDecoderMode: DecoderMode = DecoderMode.AUTO
 
-    private data class EpgRequestKey(
-        val providerId: Long,
-        val internalChannelId: Long,
-        val epgChannelId: String?,
-        val streamId: Long
-    )
+    // Zapping state
+    internal var channelList: List<com.streamvault.domain.model.Channel> = emptyList()
+    internal var currentChannelIndex = -1
+    internal var previousChannelIndex = -1
+    internal var currentCategoryId: Long = -1
+    internal var currentProviderId: Long = -1L
+    internal var currentContentId: Long = -1L
+    internal var currentContentType: ContentType = ContentType.LIVE
+    internal var currentTitle: String = ""
+    private var currentSeriesId: Long? = null
+    private var currentSeasonNumber: Int? = null
+    private var currentEpisodeNumber: Int? = null
+    internal var isVirtualCategory: Boolean = false
+    private var lastObservedPlaybackState: PlaybackState = PlaybackState.IDLE
+
+    private var epgJob: Job? = null
+    private var playlistJob: Job? = null
+    private var recentChannelsJob: Job? = null
+    private var lastVisitedCategoryJob: Job? = null
+    internal var controlsHideJob: Job? = null
+    private var seekPreviewJob: Job? = null
+    private var progressTrackingJob: Job? = null
+    internal var zapOverlayJob: Job? = null
+    private var aspectRatioJob: Job? = null
+    internal var zapBufferWatchdogJob: Job? = null
+    private var isAppInForeground: Boolean = true
+    private var shouldResumeAfterForeground: Boolean = false
+    private var seekPreviewRequestVersion: Long = 0L
+    private var lastMuteToggleAtMs: Long = 0L
 
     val castConnectionState: StateFlow<CastConnectionState> = castManager.connectionState
 
-    private fun logRepositoryFailure(operation: String, result: com.streamvault.domain.model.Result<Unit>) {
+    internal fun logRepositoryFailure(operation: String, result: com.streamvault.domain.model.Result<Unit>) {
         if (result is com.streamvault.domain.model.Result.Error) {
             android.util.Log.w("PlayerVM", "$operation failed: ${result.message}", result.exception)
         }
@@ -293,7 +255,7 @@ class PlayerViewModel @Inject constructor(
                     zapBufferWatchdogJob?.cancel()
                     dismissRecoveredNoticeIfPresent()
                     if (currentContentType == ContentType.LIVE) {
-                        _currentChannel.value?.let { channel ->
+                        currentChannelFlow.value?.sanitizedForPlayer()?.let { channel ->
                             if (channel.errorCount > 0) {
                                 logRepositoryFailure(
                                     operation = "Reset channel error count",
@@ -364,13 +326,6 @@ class PlayerViewModel @Inject constructor(
         }
     }
 
-    private data class PlayerUiTimeouts(
-        val controlsMs: Long,
-        val liveOverlayMs: Long,
-        val noticeMs: Long,
-        val diagnosticsMs: Long
-    )
-
     private fun handlePlaybackError(error: PlayerError) {
         val requestVersion = prepareRequestVersion
         val playbackUrl = currentPlaybackIdentityUrl()
@@ -392,7 +347,7 @@ class PlayerViewModel @Inject constructor(
             return
         }
         val recoveryType = classifyPlaybackError(error)
-        val channel = _currentChannel.value
+        val channel = currentChannelFlow.value?.sanitizedForPlayer()
 
         if (currentContentType != ContentType.LIVE || channel == null) {
             if (!isActivePlaybackSession(requestVersion, playbackUrl)) return
@@ -484,147 +439,51 @@ class PlayerViewModel @Inject constructor(
         }
     }
 
-    fun openChannelListOverlay() {
-        clearNumericChannelInput()
-        _showChannelListOverlay.value = true
-        _showCategoryListOverlay.value = false
-        _showEpgOverlay.value = false
-        _showChannelInfoOverlay.value = false
-        _showControls.value = false
-        scheduleLiveOverlayAutoHide()
-    }
-
-    fun openCategoryListOverlay() {
-        if (currentProviderId <= 0 || _availableCategories.value.isEmpty()) return
-        _showCategoryListOverlay.value = true
-        _showChannelListOverlay.value = false
-        scheduleLiveOverlayAutoHide()
-    }
-
-    fun selectCategoryFromOverlay(category: Category) {
-        _showCategoryListOverlay.value = false
-        currentCategoryId = category.id
-        _activeCategoryId.value = category.id
-        isVirtualCategory = category.isVirtual
-        loadPlaylist(
-            categoryId = category.id,
-            providerId = currentProviderId,
-            isVirtual = category.isVirtual,
-            initialChannelId = currentContentId
-        )
-        openChannelListOverlay()
-    }
-
-    fun openEpgOverlay() {
-        clearNumericChannelInput()
-        _showEpgOverlay.value = true
-        _showChannelListOverlay.value = false
-        _showChannelInfoOverlay.value = false
-        _showControls.value = false
-        scheduleLiveOverlayAutoHide()
-    }
-
-    fun openChannelInfoOverlay() {
-        clearNumericChannelInput()
-        _showChannelInfoOverlay.value = true
-        _showChannelListOverlay.value = false
-        _showEpgOverlay.value = false
-        _showControls.value = false
-        channelInfoHideJob?.cancel()
-        scheduleLiveOverlayAutoHide()
-    }
-
-    fun closeChannelInfoOverlay() {
-        channelInfoHideJob?.cancel()
-        _showChannelInfoOverlay.value = false
-        if (!hasVisibleTransientLiveOverlay()) clearLiveOverlayAutoHide()
-    }
-
-    fun closeOverlays() {
-        clearNumericChannelInput()
-        _showChannelListOverlay.value = false
-        _showCategoryListOverlay.value = false
-        _showEpgOverlay.value = false
-        _showChannelInfoOverlay.value = false
-        _showDiagnostics.value = false
-        channelInfoHideJob?.cancel()
-        clearLiveOverlayAutoHide()
-        clearDiagnosticsAutoHide()
-    }
-
-    private fun refreshCurrentChannelRecording(items: List<RecordingItem> = _recordingItems.value) {
-        val channelId = _currentChannel.value?.id ?: -1L
-        _currentChannelRecording.value = items.firstOrNull {
+    internal fun refreshCurrentChannelRecording(items: List<RecordingItem> = _recordingItems.value) {
+        val channelId = currentChannelFlow.value?.id ?: -1L
+        currentChannelFlowRecording.value = items.firstOrNull {
             it.providerId == currentProviderId &&
                 it.channelId == channelId &&
                 (it.status == RecordingStatus.RECORDING || it.status == RecordingStatus.SCHEDULED)
         }
     }
 
-    fun toggleDiagnostics() {
-        _showDiagnostics.value = !_showDiagnostics.value
-        if (_showDiagnostics.value) {
-            scheduleDiagnosticsAutoHide()
-        } else {
-            clearDiagnosticsAutoHide()
-        }
-    }
-
-    fun onLiveOverlayInteraction() {
-        if (hasVisibleTransientLiveOverlay()) {
-            scheduleLiveOverlayAutoHide()
-        }
-        if (_showDiagnostics.value) {
-            scheduleDiagnosticsAutoHide()
-        }
-    }
-
-    // Zapping state
-    private var channelList: List<com.streamvault.domain.model.Channel> = emptyList()
-    private var currentChannelIndex = -1
-    private var previousChannelIndex = -1
-    private var currentCategoryId: Long = -1
-    private var currentProviderId: Long = -1L
-    private var currentContentId: Long = -1L
-    private var currentContentType: ContentType = ContentType.LIVE
-    private var currentTitle: String = ""
-    private var currentSeriesId: Long? = null
-    private var currentSeasonNumber: Int? = null
-    private var currentEpisodeNumber: Int? = null
-    private var isVirtualCategory: Boolean = false
-    private var lastObservedPlaybackState: PlaybackState = PlaybackState.IDLE
+    private data class PlaybackProbeFailure(
+        val message: String,
+        val recoveryType: PlayerRecoveryType
+    )
     
-    private var epgJob: Job? = null
-    private var playlistJob: Job? = null
-    private var recentChannelsJob: Job? = null
-    private var lastVisitedCategoryJob: Job? = null
-    private var controlsHideJob: Job? = null
-    private var seekPreviewJob: Job? = null
-    private var progressTrackingJob: Job? = null
-    private var zapOverlayJob: Job? = null
-    private var aspectRatioJob: Job? = null
-    private var zapBufferWatchdogJob: Job? = null
-    private var isAppInForeground: Boolean = true
-    private var shouldResumeAfterForeground: Boolean = false
-    private var seekPreviewRequestVersion: Long = 0L
-    private var lastMuteToggleAtMs: Long = 0L
-    
-    val playerError: StateFlow<PlayerError?> = playerEngine.error
-        .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), null)
+    val playerError: StateFlow<PlayerError?> by lazy(LazyThreadSafetyMode.NONE) {
+        playerEngine.error
+            .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), null)
+    }
 
     val videoFormat: StateFlow<VideoFormat> = playerEngine.videoFormat
     
     val playerStats = playerEngine.playerStats
-    val availableAudioTracks = playerEngine.availableAudioTracks
-    val availableSubtitleTracks = playerEngine.availableSubtitleTracks
-    val availableVideoQualities = playerEngine.availableVideoTracks
+    val availableAudioTracks: StateFlow<List<com.streamvault.player.PlayerTrack>> by lazy(LazyThreadSafetyMode.NONE) {
+        playerEngine.availableAudioTracks
+            .map { tracks -> tracks as? List<com.streamvault.player.PlayerTrack> ?: emptyList() }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    }
+    val availableSubtitleTracks: StateFlow<List<com.streamvault.player.PlayerTrack>> by lazy(LazyThreadSafetyMode.NONE) {
+        playerEngine.availableSubtitleTracks
+            .map { tracks -> tracks as? List<com.streamvault.player.PlayerTrack> ?: emptyList() }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    }
+    val availableVideoQualities: StateFlow<List<com.streamvault.player.PlayerTrack>> by lazy(LazyThreadSafetyMode.NONE) {
+        playerEngine.availableVideoTracks
+            .map { tracks -> tracks as? List<com.streamvault.player.PlayerTrack> ?: emptyList() }
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+    }
     val isMuted: StateFlow<Boolean> = playerEngine.isMuted
     val mediaTitle: StateFlow<String?> = playerEngine.mediaTitle
     val playbackSpeed: StateFlow<Float> = playerEngine.playbackSpeed
 
-    val preventStandbyDuringPlayback: StateFlow<Boolean> =
+    val preventStandbyDuringPlayback: StateFlow<Boolean> by lazy(LazyThreadSafetyMode.NONE) {
         preferencesRepository.preventStandbyDuringPlayback
             .stateIn(viewModelScope, kotlinx.coroutines.flow.SharingStarted.WhileSubscribed(5000), true)
+    }
 
     fun selectAudioTrack(trackId: String) {
         playerEngine.selectAudioTrack(trackId)
@@ -705,7 +564,7 @@ class PlayerViewModel @Inject constructor(
         }
     }
 
-    private fun beginPlaybackSession(): Long {
+    internal fun beginPlaybackSession(): Long {
         recoveryJob?.cancel()
         return ++prepareRequestVersion
     }
@@ -726,6 +585,7 @@ class PlayerViewModel @Inject constructor(
         episodeNumber: Int?
     ): Episode? {
         val episodes = series.seasons
+            .sanitizedForPlayer()
             .sortedBy { it.seasonNumber }
             .flatMap { season -> season.episodes.sortedBy { it.episodeNumber } }
         return episodes.firstOrNull { it.id == episodeId }
@@ -734,6 +594,7 @@ class PlayerViewModel @Inject constructor(
 
     private fun findNextEpisode(series: Series, episode: Episode): Episode? {
         val orderedEpisodes = series.seasons
+            .sanitizedForPlayer()
             .sortedBy { it.seasonNumber }
             .flatMap { season -> season.episodes.sortedBy { it.episodeNumber } }
         val currentIndex = orderedEpisodes.indexOfFirst { it.id == episode.id }
@@ -755,7 +616,7 @@ class PlayerViewModel @Inject constructor(
             when (val result = seriesRepository.getSeriesDetails(providerId, seriesId)) {
                 is Result.Success -> {
                     if (!isActivePlaybackSession(requestVersion)) return@launch
-                    val series = result.data
+                    val series = result.data.sanitizedForPlayer()
                     val resolvedEpisode = resolveEpisode(series, episodeId, seasonNumber, episodeNumber)
                     _currentSeries.value = series
                     _currentEpisode.value = resolvedEpisode
@@ -769,7 +630,7 @@ class PlayerViewModel @Inject constructor(
                             ?: series.posterUrl
                             ?: series.backdropUrl
                         currentTitle = buildEpisodePlaybackTitle(resolvedEpisode)
-                        _playbackTitle.value = currentTitle
+                        playbackTitleFlow.value = currentTitle
                     }
                 }
 
@@ -838,7 +699,7 @@ class PlayerViewModel @Inject constructor(
     private fun currentPlaybackIdentityUrl(): String =
         currentResolvedPlaybackUrl.ifBlank { currentStreamUrl }
 
-    private fun isActivePlaybackSession(
+    internal fun isActivePlaybackSession(
         requestVersion: Long,
         expectedLogicalUrl: String? = null
     ): Boolean {
@@ -848,7 +709,7 @@ class PlayerViewModel @Inject constructor(
         return activeUrl.isBlank() || activeUrl == expectedUrl || currentStreamUrl == expectedUrl
     }
 
-    private fun requestEpg(
+    internal fun requestEpg(
         providerId: Long,
         epgChannelId: String?,
         streamId: Long = 0L,
@@ -877,11 +738,21 @@ class PlayerViewModel @Inject constructor(
         )
     }
 
-    private suspend fun preparePlayer(
+    internal suspend fun preparePlayer(
         streamInfo: com.streamvault.domain.model.StreamInfo,
         requestVersion: Long
     ): Boolean {
         if (!isActivePlaybackSession(requestVersion)) return false
+        probePlaybackUrl(streamInfo.url)?.let { failure ->
+            if (!isActivePlaybackSession(requestVersion)) return false
+            setLastFailureReason(failure.message)
+            showPlayerNotice(
+                message = failure.message,
+                recoveryType = failure.recoveryType,
+                actions = buildRecoveryActions(failure.recoveryType)
+            )
+            return false
+        }
         playerEngine.setMuted(preferencesRepository.playerMuted.first())
         playerEngine.setPlaybackSpeed(
             if (currentContentType == ContentType.LIVE) {
@@ -904,6 +775,45 @@ class PlayerViewModel @Inject constructor(
         currentResolvedPlaybackUrl = streamInfo.url
         playerEngine.prepare(streamInfo)
         return true
+    }
+
+    private suspend fun probePlaybackUrl(url: String): PlaybackProbeFailure? {
+        if (!shouldProbePlaybackUrl(url)) return null
+
+        return runCatching {
+            withContext(Dispatchers.IO) {
+                val request = Request.Builder()
+                    .url(url)
+                    .get()
+                    .header("Range", "bytes=0-0")
+                    .build()
+                okHttpClient.newCall(request).execute().use { response ->
+                    when (response.code) {
+                        401, 403 -> PlaybackProbeFailure(
+                            message = "This Xtream stream was rejected by the provider (${response.code} Unauthorized/Forbidden).",
+                            recoveryType = PlayerRecoveryType.SOURCE
+                        )
+                        404 -> PlaybackProbeFailure(
+                            message = "This Xtream stream is unavailable on the provider right now (404).",
+                            recoveryType = PlayerRecoveryType.SOURCE
+                        )
+                        in 500..599 -> PlaybackProbeFailure(
+                            message = "The provider returned a server error for this stream (${response.code}).",
+                            recoveryType = PlayerRecoveryType.NETWORK
+                        )
+                        else -> null
+                    }
+                }
+            }
+        }.getOrNull()
+    }
+
+    private suspend fun shouldProbePlaybackUrl(url: String): Boolean {
+        if (!url.startsWith("http://") && !url.startsWith("https://")) return false
+        val providerId = currentProviderId.takeIf { it > 0L } ?: return false
+        val provider = providerRepository.getProvider(providerId) ?: return false
+        return provider.type == com.streamvault.domain.model.ProviderType.XTREAM_CODES &&
+            (xtreamStreamUrlResolver.isInternalStreamUrl(currentStreamUrl) || xtreamStreamUrlResolver.isInternalStreamUrl(url))
     }
 
     fun prepare(
@@ -939,7 +849,7 @@ class PlayerViewModel @Inject constructor(
         currentStreamUrl = streamUrl
         currentContentId = internalChannelId
         currentTitle = title
-        _playbackTitle.value = title
+        playbackTitleFlow.value = title
         currentArtworkUrl = artworkUrl
         currentContentType = try { ContentType.valueOf(contentType) } catch (e: Exception) { ContentType.LIVE }
         currentProviderId = providerId
@@ -965,7 +875,7 @@ class PlayerViewModel @Inject constructor(
         if (currentContentType != ContentType.LIVE) {
             lastRecordedLivePlaybackKey = null
             recentChannelsJob?.cancel()
-            _recentChannels.value = emptyList()
+            recentChannelsFlow.value = emptyList()
             lastVisitedCategoryJob?.cancel()
             _lastVisitedCategory.value = null
         }
@@ -1033,7 +943,7 @@ class PlayerViewModel @Inject constructor(
         // Load playlist if context changed
         if (shouldReloadPlaylist) {
             currentCategoryId = categoryId
-            _activeCategoryId.value = categoryId
+            activeCategoryIdFlow.value = categoryId
             isVirtualCategory = isVirtual
             loadPlaylist(categoryId, providerId, isVirtual, internalChannelId)
         } else {
@@ -1073,7 +983,7 @@ class PlayerViewModel @Inject constructor(
                         requestVersionOverride = requestVersion
                     )
                 } else {
-                    val reason = resolveCatchUpFailureMessage(_currentChannel.value, archiveRequested = true, programHasArchive = true)
+                    val reason = resolveCatchUpFailureMessage(currentChannelFlow.value, archiveRequested = true, programHasArchive = true)
                     setLastFailureReason(reason)
                     showPlayerNotice(
                         message = reason,
@@ -1115,11 +1025,11 @@ class PlayerViewModel @Inject constructor(
             viewModelScope.launch {
                 val channel = channelRepository.getChannel(internalChannelId)
                 if (!isActivePlaybackSession(requestVersion, streamUrl)) return@launch
-                _currentChannel.value = channel
+                currentChannelFlow.value = channel
                 refreshCurrentChannelRecording()
                 if (channel != null) {
                     currentTitle = channel.name.ifBlank { currentTitle }
-                    _playbackTitle.value = currentTitle
+                    playbackTitleFlow.value = currentTitle
                     currentStreamUrl = if (currentStreamClassLabel == "Catch-up") currentStreamUrl else channel.streamUrl
                     updateStreamClass(
                         when {
@@ -1209,49 +1119,6 @@ class PlayerViewModel @Inject constructor(
         playerEngine.release()
     }
 
-    fun castCurrentMedia(onRouteSelectionRequired: () -> Unit) {
-        viewModelScope.launch {
-            val request = buildCastRequest()
-            if (request == null) {
-                showPlayerNotice(
-                    message = "This item cannot be sent to a Cast receiver.",
-                    recoveryType = PlayerRecoveryType.SOURCE
-                )
-                return@launch
-            }
-
-            when (castManager.startCasting(request)) {
-                CastStartResult.STARTED -> {
-                    playerEngine.pause()
-                    showPlayerNotice(
-                        message = "Casting to the connected device.",
-                        recoveryType = PlayerRecoveryType.NETWORK
-                    )
-                }
-
-                CastStartResult.ROUTE_SELECTION_REQUIRED -> onRouteSelectionRequired()
-
-                CastStartResult.UNAVAILABLE -> showPlayerNotice(
-                    message = "Google Cast is unavailable on this device.",
-                    recoveryType = PlayerRecoveryType.SOURCE
-                )
-
-                CastStartResult.UNSUPPORTED -> showPlayerNotice(
-                    message = "This stream format is not supported by Google Cast.",
-                    recoveryType = PlayerRecoveryType.SOURCE
-                )
-            }
-        }
-    }
-
-    fun stopCasting() {
-        castManager.stopCasting()
-        showPlayerNotice(
-            message = "Cast session disconnected.",
-            recoveryType = PlayerRecoveryType.NETWORK
-        )
-    }
-
     private fun fetchEpg(
         providerId: Long,
         internalChannelId: Long,
@@ -1290,7 +1157,7 @@ class PlayerViewModel @Inject constructor(
     }
 
     private fun applyProgramTimeline(programs: List<Program>, now: Long) {
-        val catchUpSupported = _currentChannel.value?.catchUpSupported == true
+        val catchUpSupported = currentChannelFlow.value?.catchUpSupported == true
         val sortedPrograms = programs.sortedBy { it.startTime }
         val current = sortedPrograms.firstOrNull { it.startTime <= now && it.endTime > now }
         _currentProgram.value = current
@@ -1341,7 +1208,7 @@ class PlayerViewModel @Inject constructor(
         _upcomingPrograms.value = emptyList()
     }
 
-    private fun loadPlaylist(categoryId: Long, providerId: Long, isVirtual: Boolean, initialChannelId: Long) {
+    internal fun loadPlaylist(categoryId: Long, providerId: Long, isVirtual: Boolean, initialChannelId: Long) {
         playlistJob?.cancel()
         playlistJob = viewModelScope.launch {
             val flows = if (isVirtual) {
@@ -1396,11 +1263,11 @@ class PlayerViewModel @Inject constructor(
                     }
                     ChannelNumberingMode.PROVIDER -> channels
                 }
-                numberingMode to displayedChannels
+                numberingMode to displayedChannels.sanitizedChannelsForPlayer()
             }.collect { (numberingMode, displayedChannels) ->
                 channelNumberingMode = numberingMode
                 channelList = displayedChannels
-                _currentChannelList.value = displayedChannels
+                currentChannelFlowList.value = displayedChannels
                 // Recalculate index based on initial ID or URL
                 if (initialChannelId != -1L) {
                     currentChannelIndex = channelList.indexOfFirst { it.id == initialChannelId }
@@ -1410,22 +1277,22 @@ class PlayerViewModel @Inject constructor(
                 }
                 
                 if (currentChannelIndex != -1) {
-                    _currentChannel.value = channelList[currentChannelIndex]
+                currentChannelFlow.value = channelList[currentChannelIndex].sanitizedForPlayer()
                     refreshCurrentChannelRecording()
                     val ch = channelList[currentChannelIndex]
-                    _displayChannelNumber.value = resolveChannelNumber(ch, currentChannelIndex)
+                    displayChannelNumberFlow.value = resolveChannelNumber(ch, currentChannelIndex)
                 }
             }
         }
     }
     
     // Store current URL to find index later
-    private var currentStreamUrl: String = ""
+    internal var currentStreamUrl: String = ""
 
     private fun observeRecentChannels() {
         recentChannelsJob?.cancel()
         if (currentContentType != ContentType.LIVE || currentProviderId <= 0) {
-            _recentChannels.value = emptyList()
+            recentChannelsFlow.value = emptyList()
             return
         }
 
@@ -1455,7 +1322,7 @@ class PlayerViewModel @Inject constructor(
                 val currentListNumbers = channelList.withIndex().associate { (index, channel) ->
                     channel.id to resolveChannelNumber(channel, index)
                 }
-                _recentChannels.value = channels
+                recentChannelsFlow.value = channels
                         .filterNot { it.id == currentContentId }
                         .map { channel ->
                             currentListNumbers[channel.id]?.let { number ->
@@ -1487,7 +1354,7 @@ class PlayerViewModel @Inject constructor(
                 }
                 Pair(allCategories, lastVisited)
             }.collect { (allCategories, lastVisited) ->
-                _availableCategories.value = allCategories
+                availableCategoriesFlow.value = allCategories
                 _lastVisitedCategory.value = lastVisited
             }
         }
@@ -1498,7 +1365,7 @@ class PlayerViewModel @Inject constructor(
         if (currentContentType != ContentType.LIVE || currentProviderId <= 0) return
 
         currentCategoryId = category.id
-        _activeCategoryId.value = category.id
+        activeCategoryIdFlow.value = category.id
         isVirtualCategory = category.isVirtual
         loadPlaylist(
             categoryId = category.id,
@@ -1532,228 +1399,11 @@ class PlayerViewModel @Inject constructor(
         return currentChannelIndex
     }
 
-    private fun wrappedChannelIndex(offset: Int): Int {
+    internal fun wrappedChannelIndex(offset: Int): Int {
         val resolvedIndex = resolveCurrentLiveChannelIndex()
         if (resolvedIndex == -1) return -1
         val size = channelList.size
         return ((resolvedIndex + offset) % size + size) % size
-    }
-
-    fun playNext() {
-        clearNumericChannelInput()
-        if (channelList.isEmpty()) return
-
-        val nextIndex = wrappedChannelIndex(offset = 1)
-        if (nextIndex == -1) return
-        changeChannel(nextIndex)
-    }
-
-    fun playPrevious() {
-        clearNumericChannelInput()
-        if (channelList.isEmpty()) return
-
-        val prevIndex = wrappedChannelIndex(offset = -1)
-        if (prevIndex == -1) return
-        changeChannel(prevIndex)
-    }
-
-    fun zapToChannel(channelId: Long) {
-        clearNumericChannelInput()
-        if (channelList.isEmpty()) return
-        val index = channelList.indexOfFirst { it.id == channelId }
-        if (index != -1) {
-            changeChannel(index)
-            closeOverlays()
-        }
-    }
-
-    fun zapToLastChannel() {
-        clearNumericChannelInput()
-        if (channelList.isEmpty() || previousChannelIndex == -1) return
-        changeChannel(previousChannelIndex)
-    }
-
-    fun hasLastChannel(): Boolean =
-        currentContentType == ContentType.LIVE &&
-            previousChannelIndex in channelList.indices &&
-            previousChannelIndex != currentChannelIndex
-
-    fun hasPendingNumericChannelInput(): Boolean = numericInputBuffer.isNotBlank()
-
-    fun inputNumericChannelDigit(digit: Int) {
-        if (currentContentType != ContentType.LIVE || channelList.isEmpty() || digit !in 0..9) return
-
-        if (numericInputBuffer.isEmpty() && digit == 0) {
-            zapToLastChannel()
-            return
-        }
-
-        numericInputBuffer = if (numericInputBuffer.length >= 4) {
-            digit.toString()
-        } else {
-            numericInputBuffer + digit.toString()
-        }
-
-        val exactMatch = resolveChannelByNumber(numericInputBuffer.toIntOrNull())
-        val previewMatch = exactMatch ?: resolveChannelByPrefix(numericInputBuffer)
-
-        _numericChannelInput.value = NumericChannelInputState(
-            input = numericInputBuffer,
-            matchedChannelName = previewMatch?.name,
-            invalid = false
-        )
-
-        scheduleNumericChannelCommit()
-    }
-
-    fun commitNumericChannelInput() {
-        numericInputCommitJob?.cancel()
-        if (numericInputBuffer.isBlank()) return
-
-        val targetChannel = resolveChannelByNumber(numericInputBuffer.toIntOrNull())
-        if (targetChannel != null) {
-            val targetIndex = channelList.indexOfFirst { it.id == targetChannel.id }
-            if (targetIndex != -1) {
-                changeChannel(targetIndex)
-            }
-            clearNumericChannelInput()
-            return
-        }
-
-        _numericChannelInput.value = NumericChannelInputState(
-            input = numericInputBuffer,
-            matchedChannelName = null,
-            invalid = true
-        )
-
-        numericInputFeedbackJob?.cancel()
-        numericInputFeedbackJob = viewModelScope.launch {
-            delay(900)
-            clearNumericChannelInput()
-        }
-    }
-
-    fun clearNumericChannelInput() {
-        numericInputCommitJob?.cancel()
-        numericInputFeedbackJob?.cancel()
-        numericInputBuffer = ""
-        _numericChannelInput.value = null
-    }
-
-    private fun changeChannel(index: Int) {
-        clearNumericChannelInput()
-        if (currentChannelIndex != -1 && currentChannelIndex != index) {
-            previousChannelIndex = currentChannelIndex
-        }
-        val requestVersion = beginPlaybackSession()
-        val channel = channelList[index]
-        currentChannelIndex = index
-        currentContentId = channel.id
-        currentTitle = channel.name
-        _playbackTitle.value = currentTitle
-        currentStreamUrl = channel.streamUrl
-        pendingCatchUpUrls = emptyList()
-        updateStreamClass("Primary")
-        _currentChannel.value = channel
-        refreshCurrentChannelRecording()
-        _displayChannelNumber.value = resolveChannelNumber(channel, index)
-        _recentChannels.update { channels -> channels.filterNot { it.id == channel.id } }
-
-        // Enable scrubbing mode for fast channel start — key-frame-only decoding
-        playerEngine.setScrubbingMode(true)
-
-        viewModelScope.launch {
-            val resolvedUrl = resolvePlaybackUrl(channel.streamUrl, channel.id, channel.providerId, ContentType.LIVE)
-                ?: return@launch
-            if (!isActivePlaybackSession(requestVersion, channel.streamUrl)) return@launch
-            val streamInfo = com.streamvault.domain.model.StreamInfo(
-                url = resolvedUrl,
-                title = currentTitle,
-                streamType = com.streamvault.domain.model.StreamType.UNKNOWN
-            )
-            if (!preparePlayer(streamInfo, requestVersion)) return@launch
-            playerEngine.play()
-
-            // Once the first frame is on screen, turn off scrubbing for full quality
-            playerEngine.playbackState
-                .filter { it == com.streamvault.player.PlaybackState.READY }
-                .take(1)
-                .collect {
-                    if (isActivePlaybackSession(requestVersion, channel.streamUrl)) {
-                        playerEngine.setScrubbingMode(false)
-                    }
-                }
-        }
-
-        // Pre-warm the next channel in sequence so the subsequent zap is near-instant
-        preloadAdjacentChannel(index)
-        
-        requestEpg(
-            providerId = currentProviderId,
-            epgChannelId = channel.epgChannelId,
-            streamId = channel.streamId,
-            internalChannelId = channel.id
-        )
-        
-        // Show bottom live info overlay
-        _showZapOverlay.value = false
-        _showControls.value = false 
-        openChannelInfoOverlay()
-        
-        // Reset tried streams for manual switch
-        triedAlternativeStreams.clear()
-        triedAlternativeStreams.add(channel.streamUrl)
-        if (currentContentType == ContentType.LIVE) {
-            recordLivePlayback(channel)
-            scheduleZapBufferWatchdog(index)
-        }
-    }
-
-    /**
-     * Pre-warm the next channel's media source so switching is near-instant.
-     * Only the manifest/first segment is parsed — no full buffering.
-     */
-    private fun preloadAdjacentChannel(currentIndex: Int) {
-        if (channelList.size < 2) return
-        val nextIndex = (currentIndex + 1) % channelList.size
-        val nextChannel = channelList[nextIndex]
-        viewModelScope.launch {
-            val nextUrl = resolvePlaybackUrl(
-                nextChannel.streamUrl, nextChannel.id,
-                nextChannel.providerId, ContentType.LIVE
-            ) ?: return@launch
-            playerEngine.preload(
-                com.streamvault.domain.model.StreamInfo(
-                    url = nextUrl,
-                    title = nextChannel.name,
-                    streamType = com.streamvault.domain.model.StreamType.UNKNOWN
-                )
-            )
-        }
-    }
-
-    private fun recordLivePlayback(channel: com.streamvault.domain.model.Channel) {
-        if (currentProviderId <= 0 || currentContentType != ContentType.LIVE) return
-
-        val playbackKey = currentProviderId to channel.id
-        if (lastRecordedLivePlaybackKey == playbackKey) return
-        lastRecordedLivePlaybackKey = playbackKey
-
-        viewModelScope.launch {
-            logRepositoryFailure(
-                operation = "Record live playback",
-                result = playbackHistoryRepository.recordPlayback(
-                    PlaybackHistory(
-                        contentId = channel.id,
-                        contentType = ContentType.LIVE,
-                        providerId = currentProviderId,
-                        title = channel.name,
-                        streamUrl = channel.streamUrl,
-                        lastWatchedAt = System.currentTimeMillis()
-                    )
-                )
-            )
-        }
     }
 
     private fun classifyPlaybackError(error: PlayerError): PlayerRecoveryType = when (error) {
@@ -1786,17 +1436,18 @@ class PlayerViewModel @Inject constructor(
         PlayerRecoveryType.UNKNOWN -> error.message.ifBlank { "Playback failed for an unknown reason." }
     }
 
-    private fun buildRecoveryActions(recoveryType: PlayerRecoveryType): List<PlayerNoticeAction> = buildList {
-        add(PlayerNoticeAction.RETRY)
+    private fun buildRecoveryActions(recoveryType: PlayerRecoveryType): List<PlayerNoticeAction> {
+        val actions = mutableListOf(PlayerNoticeAction.RETRY)
         if (hasAlternateStream()) {
-            add(PlayerNoticeAction.ALTERNATE_STREAM)
+            actions += PlayerNoticeAction.ALTERNATE_STREAM
         }
         if (hasLastChannel()) {
-            add(PlayerNoticeAction.LAST_CHANNEL)
+            actions += PlayerNoticeAction.LAST_CHANNEL
         }
         if (recoveryType == PlayerRecoveryType.CATCH_UP && currentContentType == ContentType.LIVE) {
-            add(PlayerNoticeAction.OPEN_GUIDE)
+            actions += PlayerNoticeAction.OPEN_GUIDE
         }
+        return actions
     }
 
     private fun markStreamFailure(streamUrl: String) {
@@ -1808,7 +1459,7 @@ class PlayerViewModel @Inject constructor(
         _playerDiagnostics.update { it.copy(decoderMode = mode) }
     }
 
-    private fun updateStreamClass(label: String) {
+    internal fun updateStreamClass(label: String) {
         currentStreamClassLabel = label
         _playerDiagnostics.update { it.copy(streamClassLabel = label) }
     }
@@ -1861,7 +1512,8 @@ class PlayerViewModel @Inject constructor(
                     (failedStreamsThisSession[altUrl] ?: 0) == 0
             }
         }
-        val channel = _currentChannel.value ?: return false
+        if (currentContentType != ContentType.LIVE) return false
+        val channel = currentChannelFlow.value?.sanitizedForPlayer() ?: return false
         return channel.alternativeStreams.any { altUrl ->
             altUrl != currentStreamUrl &&
                 altUrl !in triedAlternativeStreams &&
@@ -1873,7 +1525,8 @@ class PlayerViewModel @Inject constructor(
         if (isCatchUpPlayback()) {
             return tryNextCatchUpVariantInternal()
         }
-        val channel = _currentChannel.value ?: return false
+        if (currentContentType != ContentType.LIVE) return false
+        val channel = currentChannelFlow.value?.sanitizedForPlayer() ?: return false
         return tryAlternateStreamInternal(channel)
     }
 
@@ -1938,7 +1591,7 @@ class PlayerViewModel @Inject constructor(
         return true
     }
 
-    private fun scheduleZapBufferWatchdog(targetIndex: Int) {
+    internal fun scheduleZapBufferWatchdog(targetIndex: Int) {
         zapBufferWatchdogJob?.cancel()
         val requestVersion = prepareRequestVersion
         zapBufferWatchdogJob = viewModelScope.launch {
@@ -1973,39 +1626,6 @@ class PlayerViewModel @Inject constructor(
             return true
         }
         return false
-    }
-
-    private fun scheduleNumericChannelCommit() {
-        numericInputCommitJob?.cancel()
-        numericInputCommitJob = viewModelScope.launch {
-            delay(1300)
-            commitNumericChannelInput()
-        }
-    }
-
-    private fun resolveChannelByNumber(number: Int?): com.streamvault.domain.model.Channel? {
-        if (number == null) return null
-        return channelList
-            .withIndex()
-            .firstOrNull { (index, channel) -> resolveChannelNumber(channel, index) == number }
-            ?.value
-    }
-
-    private fun resolveChannelByPrefix(prefix: String): com.streamvault.domain.model.Channel? {
-        return channelList
-            .withIndex()
-            .firstOrNull { (index, channel) ->
-                resolveChannelNumber(channel, index).toString().startsWith(prefix)
-            }
-            ?.value
-    }
-
-    private fun resolveChannelNumber(
-        channel: com.streamvault.domain.model.Channel,
-        index: Int
-    ): Int = when (channelNumberingMode) {
-        ChannelNumberingMode.GROUP -> if (index >= 0) index + 1 else channel.number.takeIf { number -> number > 0 } ?: 0
-        ChannelNumberingMode.PROVIDER -> channel.number.takeIf { number -> number > 0 } ?: if (index >= 0) index + 1 else 0
     }
 
     fun play() = playerEngine.play()
@@ -2045,8 +1665,8 @@ class PlayerViewModel @Inject constructor(
 
     fun toggleControls() {
         closeChannelInfoOverlay()
-        _showControls.value = !_showControls.value
-        if (!_showControls.value) {
+        showControlsFlow.value = !showControlsFlow.value
+        if (!showControlsFlow.value) {
             clearSeekPreview()
         }
     }
@@ -2103,7 +1723,7 @@ class PlayerViewModel @Inject constructor(
         )
         if (!preparePlayer(catchupStream, requestVersion)) return
         playerEngine.play()
-        _showControls.value = true
+        showControlsFlow.value = true
     }
 
     fun playCatchUp(program: Program) {
@@ -2111,7 +1731,7 @@ class PlayerViewModel @Inject constructor(
             val requestVersion = prepareRequestVersion
             val start = program.startTime / 1000L
             val end = program.endTime / 1000L
-            val streamId = _currentChannel.value?.id ?: 0L
+            val streamId = currentChannelFlow.value?.id ?: 0L
             val providerId = currentProviderId
             
             if (providerId == -1L || streamId == 0L) {
@@ -2140,11 +1760,11 @@ class PlayerViewModel @Inject constructor(
             if (catchUpUrls.isNotEmpty()) {
                 startCatchUpPlayback(
                     urls = catchUpUrls,
-                    title = "${_currentChannel.value?.name ?: ""}: ${program.title}",
+                    title = "${currentChannelFlow.value?.name ?: ""}: ${program.title}",
                     recoveryAction = "Started program replay"
                 )
             } else {
-                val reason = resolveCatchUpFailureMessage(_currentChannel.value, archiveRequested = true, programHasArchive = program.hasArchive)
+                val reason = resolveCatchUpFailureMessage(currentChannelFlow.value, archiveRequested = true, programHasArchive = program.hasArchive)
                 setLastFailureReason(reason)
                 showPlayerNotice(
                     message = reason,
@@ -2173,85 +1793,6 @@ class PlayerViewModel @Inject constructor(
         }
     }
 
-    fun startManualRecording() {
-        val channel = _currentChannel.value
-        if (currentContentType != ContentType.LIVE || channel == null || currentProviderId <= 0) {
-            showPlayerNotice(message = "Recording needs a valid live channel context.")
-            return
-        }
-        viewModelScope.launch {
-            val now = System.currentTimeMillis()
-            val result = recordingManager.startManualRecording(
-                RecordingRequest(
-                    providerId = currentProviderId,
-                    channelId = channel.id,
-                    channelName = channel.name,
-                    streamUrl = currentStreamUrl,
-                    scheduledStartMs = now,
-                    scheduledEndMs = _currentProgram.value?.endTime ?: (now + 30 * 60_000L),
-                    programTitle = _currentProgram.value?.title
-                )
-            )
-            if (result is com.streamvault.domain.model.Result.Error) {
-                showPlayerNotice(message = result.message, recoveryType = PlayerRecoveryType.SOURCE)
-            } else {
-                showPlayerNotice(message = "Recording started for ${channel.name}.")
-            }
-        }
-    }
-
-    fun scheduleRecording() {
-        scheduleRecording(RecordingRecurrence.NONE)
-    }
-
-    fun scheduleDailyRecording() {
-        scheduleRecording(RecordingRecurrence.DAILY)
-    }
-
-    fun scheduleWeeklyRecording() {
-        scheduleRecording(RecordingRecurrence.WEEKLY)
-    }
-
-    private fun scheduleRecording(recurrence: RecordingRecurrence) {
-        viewModelScope.launch {
-            val result = scheduleRecordingUseCase(
-                ScheduleRecordingCommand(
-                    contentType = currentContentType,
-                    providerId = currentProviderId,
-                    channel = _currentChannel.value,
-                    streamUrl = currentStreamUrl,
-                    currentProgram = _currentProgram.value,
-                    nextProgram = _nextProgram.value,
-                    recurrence = recurrence
-                )
-            )
-            if (result is com.streamvault.domain.model.Result.Error) {
-                showPlayerNotice(message = result.message, recoveryType = PlayerRecoveryType.SOURCE)
-            } else {
-                val recurrenceLabel = when (recurrence) {
-                    RecordingRecurrence.NONE -> ""
-                    RecordingRecurrence.DAILY -> " daily"
-                    RecordingRecurrence.WEEKLY -> " weekly"
-                }
-                val scheduledItem = (result as? com.streamvault.domain.model.Result.Success)?.data
-                val title = scheduledItem?.programTitle ?: "Recording"
-                showPlayerNotice(message = "$title scheduled$recurrenceLabel.")
-            }
-        }
-    }
-
-    fun stopCurrentRecording() {
-        val recording = _currentChannelRecording.value ?: return
-        viewModelScope.launch {
-            val result = recordingManager.stopRecording(recording.id)
-            if (result is com.streamvault.domain.model.Result.Error) {
-                showPlayerNotice(message = result.message)
-            } else {
-                showPlayerNotice(message = "Recording stopped.")
-            }
-        }
-    }
-
     fun dismissPlayerNotice() {
         playerNoticeHideJob?.cancel()
         _playerNotice.value = null
@@ -2268,7 +1809,7 @@ class PlayerViewModel @Inject constructor(
         when (action) {
             PlayerNoticeAction.RETRY -> {
                 appendRecoveryAction("Manual retry")
-                retryStream(currentStreamUrl, _currentChannel.value?.epgChannelId)
+                retryStream(currentStreamUrl, currentChannelFlow.value?.epgChannelId)
             }
             PlayerNoticeAction.LAST_CHANNEL -> {
                 appendRecoveryAction("Returned to last channel")
@@ -2286,7 +1827,7 @@ class PlayerViewModel @Inject constructor(
         dismissPlayerNotice()
     }
 
-    private fun showPlayerNotice(
+    internal fun showPlayerNotice(
         message: String,
         recoveryType: PlayerRecoveryType = PlayerRecoveryType.UNKNOWN,
         actions: List<PlayerNoticeAction> = emptyList(),
@@ -2330,80 +1871,11 @@ class PlayerViewModel @Inject constructor(
 
     fun restartCurrentProgram() {
         val program = _currentProgram.value ?: return
-        if (program.hasArchive || (_currentChannel.value?.catchUpSupported == true)) {
+        if (program.hasArchive || (currentChannelFlow.value?.catchUpSupported == true)) {
             playCatchUp(program)
         }
     }
 
-    fun hideControlsAfterDelay() {
-        // Cancel previous job to prevent race condition
-        controlsHideJob?.cancel()
-        controlsHideJob = viewModelScope.launch {
-            delay(playerControlsTimeoutMs)
-            _showControls.value = false
-        }
-    }
-
-    fun refreshControlsAutoHide() {
-        if (_showControls.value) {
-            hideControlsAfterDelay()
-        }
-    }
-
-    fun cancelControlsAutoHide() {
-        controlsHideJob?.cancel()
-        controlsHideJob = null
-    }
-
-    private fun hideZapOverlayAfterDelay() {
-        zapOverlayJob?.cancel()
-        zapOverlayJob = viewModelScope.launch {
-            delay(liveOverlayTimeoutMs)
-            _showZapOverlay.value = false
-        }
-    }
-
-    private fun hasVisibleTransientLiveOverlay(): Boolean =
-        _showChannelInfoOverlay.value ||
-            _showChannelListOverlay.value ||
-            _showEpgOverlay.value
-
-    private fun clearLiveOverlayAutoHide() {
-        liveOverlayHideJob?.cancel()
-        liveOverlayHideJob = null
-    }
-
-    private fun clearDiagnosticsAutoHide() {
-        diagnosticsHideJob?.cancel()
-        diagnosticsHideJob = null
-    }
-
-    private fun scheduleLiveOverlayAutoHide() {
-        if (currentContentType != ContentType.LIVE) {
-            clearLiveOverlayAutoHide()
-            return
-        }
-        liveOverlayHideJob?.cancel()
-        liveOverlayHideJob = viewModelScope.launch {
-            delay(liveOverlayTimeoutMs)
-            _showChannelInfoOverlay.value = false
-            _showChannelListOverlay.value = false
-            _showEpgOverlay.value = false
-        }
-    }
-
-    private fun scheduleDiagnosticsAutoHide() {
-        if (currentContentType != ContentType.LIVE) {
-            clearDiagnosticsAutoHide()
-            return
-        }
-        diagnosticsHideJob?.cancel()
-        diagnosticsHideJob = viewModelScope.launch {
-            delay(diagnosticsTimeoutMs)
-            _showDiagnostics.value = false
-        }
-    }
-    
     fun retryStream(streamUrl: String, epgChannelId: String?) {
         if (isCatchUpPlayback()) {
             val requestVersion = beginPlaybackSession()
@@ -2461,6 +1933,7 @@ class PlayerViewModel @Inject constructor(
                         _currentEpisode.value?.id == internalContentId -> _currentEpisode.value
                         else -> _currentSeries.value
                             ?.seasons
+                            .sanitizedForPlayer()
                             ?.asSequence()
                             ?.flatMap { it.episodes.asSequence() }
                             ?.firstOrNull { it.id == internalContentId }
@@ -2507,7 +1980,7 @@ class PlayerViewModel @Inject constructor(
         }
     }
 
-    private suspend fun resolvePlaybackUrl(
+    internal suspend fun resolvePlaybackUrl(
         logicalUrl: String,
         internalContentId: Long,
         providerId: Long,
@@ -2518,90 +1991,6 @@ class PlayerViewModel @Inject constructor(
         providerId = providerId,
         contentType = contentType
     )?.url
-
-    private suspend fun buildCastRequest(): CastMediaRequest? {
-        return when (currentContentType) {
-            ContentType.LIVE -> {
-                val channel = _currentChannel.value ?: return null
-                val streamInfo = channelRepository.getStreamInfo(channel).getOrNull() ?: return null
-                streamInfo.toCastRequest(
-                    title = mediaTitle.value ?: channel.name,
-                    subtitle = _currentProgram.value?.title,
-                    artworkUrl = channel.logoUrl ?: currentArtworkUrl,
-                    isLive = true,
-                    startPositionMs = 0L
-                )
-            }
-
-            ContentType.MOVIE -> {
-                val movie = movieRepository.getMovie(currentContentId)
-                val streamInfo = movie?.let { movieRepository.getStreamInfo(it).getOrNull() }
-                    ?: return directCastRequest()
-                streamInfo.toCastRequest(
-                    title = currentTitle.ifBlank { movie.name },
-                    subtitle = movie.genre,
-                    artworkUrl = currentArtworkUrl ?: movie.posterUrl ?: movie.backdropUrl,
-                    isLive = false,
-                    startPositionMs = playerEngine.currentPosition.value
-                )
-            }
-
-            ContentType.SERIES,
-            ContentType.SERIES_EPISODE -> directCastRequest()
-        }
-    }
-
-    private fun directCastRequest(): CastMediaRequest? {
-        val url = currentStreamUrl.takeIf { it.isNotBlank() } ?: return null
-        return com.streamvault.domain.model.StreamInfo(url = url).toCastRequest(
-            title = currentTitle,
-            subtitle = null,
-            artworkUrl = currentArtworkUrl,
-            isLive = false,
-            startPositionMs = playerEngine.currentPosition.value
-        )
-    }
-
-    private fun com.streamvault.domain.model.StreamInfo.toCastRequest(
-        title: String,
-        subtitle: String?,
-        artworkUrl: String?,
-        isLive: Boolean,
-        startPositionMs: Long
-    ): CastMediaRequest? {
-        val resolvedUrl = url.takeIf { it.isNotBlank() } ?: return null
-        val mimeType = when (inferCastStreamType(this)) {
-            com.streamvault.domain.model.StreamType.HLS -> "application/x-mpegURL"
-            com.streamvault.domain.model.StreamType.DASH -> "application/dash+xml"
-            com.streamvault.domain.model.StreamType.MPEG_TS -> "video/mp2t"
-            com.streamvault.domain.model.StreamType.RTSP -> return null
-            com.streamvault.domain.model.StreamType.PROGRESSIVE,
-            com.streamvault.domain.model.StreamType.UNKNOWN -> "video/*"
-        }
-        return CastMediaRequest(
-            url = resolvedUrl,
-            title = title.ifBlank { this.title ?: "StreamVault" },
-            subtitle = subtitle,
-            artworkUrl = artworkUrl,
-            mimeType = mimeType,
-            isLive = isLive,
-            startPositionMs = if (isLive) 0L else startPositionMs
-        )
-    }
-
-    private fun inferCastStreamType(streamInfo: com.streamvault.domain.model.StreamInfo): com.streamvault.domain.model.StreamType {
-        if (streamInfo.streamType != com.streamvault.domain.model.StreamType.UNKNOWN) {
-            return streamInfo.streamType
-        }
-        val url = streamInfo.url.lowercase()
-        return when {
-            url.endsWith(".m3u8") -> com.streamvault.domain.model.StreamType.HLS
-            url.endsWith(".mpd") -> com.streamvault.domain.model.StreamType.DASH
-            url.endsWith(".ts") -> com.streamvault.domain.model.StreamType.MPEG_TS
-            url.startsWith("rtsp") -> com.streamvault.domain.model.StreamType.RTSP
-            else -> com.streamvault.domain.model.StreamType.PROGRESSIVE
-        }
-    }
 
     fun dismissResumePrompt(resume: Boolean) {
         val prompt = _resumePrompt.value
@@ -2632,17 +2021,4 @@ class PlayerViewModel @Inject constructor(
         lastVisitedCategoryJob?.cancel()
         playerEngine.release()
     }
-}
-
-private fun resolvePreferredAudioLanguage(preferredAudioLanguage: String?, appLanguage: String): String? {
-    val normalizedPreference = preferredAudioLanguage
-        ?.trim()
-        ?.takeIf { it.isNotBlank() && !it.equals("auto", ignoreCase = true) }
-    val effectiveTag = normalizedPreference ?: appLanguage.takeIf { it.isNotBlank() && it != "system" }
-        ?: Locale.getDefault().toLanguageTag()
-    return effectiveTag
-        .takeIf { it.isNotBlank() }
-        ?.let { Locale.forLanguageTag(it) }
-        ?.takeIf { it.language.isNotBlank() }
-        ?.toLanguageTag()
 }

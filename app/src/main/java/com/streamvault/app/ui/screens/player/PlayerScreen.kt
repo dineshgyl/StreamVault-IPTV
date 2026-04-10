@@ -121,8 +121,7 @@ fun PlayerScreen(
     returnRoute: String? = null,
     onBack: () -> Unit,
     onNavigate: ((String) -> Unit)? = null,
-    viewModel: PlayerViewModel = hiltViewModel(),
-    multiViewViewModel: MultiViewViewModel = hiltViewModel()
+    viewModel: PlayerViewModel = hiltViewModel()
 ) {
     val screenWidth = LocalConfiguration.current.screenWidthDp.dp
     val isTelevisionDevice = rememberIsTelevisionDevice()
@@ -159,7 +158,11 @@ fun PlayerScreen(
     val currentEpisode by viewModel.currentEpisode.collectAsStateWithLifecycle()
     val playbackTitle by viewModel.playbackTitle.collectAsStateWithLifecycle()
     val resumePrompt by viewModel.resumePrompt.collectAsStateWithLifecycle()
-    val canOpenEpisodePicker = contentType == "SERIES_EPISODE" && currentSeries?.seasons?.any { it.episodes.isNotEmpty() } == true
+    val currentSeriesSeasons = remember(currentSeries) {
+        currentSeries?.seasons.sanitizedForPlayer()
+    }
+    val canOpenEpisodePicker = contentType == "SERIES_EPISODE" &&
+        currentSeriesSeasons?.any { it.episodes.isNotEmpty() } == true
     
     val showChannelListOverlay by viewModel.showChannelListOverlay.collectAsStateWithLifecycle()
     val showCategoryListOverlay by viewModel.showCategoryListOverlay.collectAsStateWithLifecycle()
@@ -332,6 +335,7 @@ fun PlayerScreen(
 
     // Split Screen Manager dialog
     if (showSplitDialog && currentChannel != null) {
+        val multiViewViewModel: MultiViewViewModel = hiltViewModel()
         MultiViewPlannerDialog(
             pendingChannel = currentChannel,
             onDismiss = { showSplitDialog = false },
@@ -915,7 +919,7 @@ fun PlayerScreen(
             PlayerEpisodeSelectionDialog(
                 visible = showEpisodePicker,
                 seriesTitle = currentSeries?.name ?: playbackTitle.ifBlank { title },
-                seasons = currentSeries?.seasons.orEmpty(),
+                seasons = currentSeriesSeasons.orEmpty(),
                 currentEpisodeId = currentEpisode?.id ?: internalChannelId,
                 currentSeasonNumber = currentEpisode?.seasonNumber ?: seasonNumber,
                 onDismiss = { showEpisodePicker = false },

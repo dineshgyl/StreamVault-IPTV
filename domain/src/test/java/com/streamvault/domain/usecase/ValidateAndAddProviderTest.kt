@@ -119,6 +119,45 @@ class ValidateAndAddProviderTest {
             )
         )
     }
+
+    @Test
+    fun auto_converts_xtream_playlist_url_to_xtream_login() = runTest {
+        val repository = FakeProviderRepository()
+        val useCase = ValidateAndAddProvider(
+            providerSetupInputValidator = FakeProviderSetupInputValidator(
+                m3uResult = Result.success(
+                    ValidatedM3uProviderInput(
+                        url = "http://tvappapk@extapk2302.shop:8080/get.php?username=Hakan1605&password=wg9daUwzfV&type=m3u_plus",
+                        name = "Imported Playlist"
+                    )
+                )
+            ),
+            providerRepository = repository
+        )
+
+        val result = useCase.addM3u(
+            M3uProviderSetupCommand(
+                url = "http://tvappapk@extapk2302.shop:8080/get.php?username=Hakan1605&password=wg9daUwzfV&type=m3u_plus",
+                name = "Imported Playlist",
+                epgSyncMode = ProviderEpgSyncMode.BACKGROUND,
+                existingProviderId = 19L
+            )
+        )
+
+        assertThat(result).isInstanceOf(ValidateAndAddProviderResult.Success::class.java)
+        assertThat(repository.lastM3uCall).isNull()
+        assertThat(repository.lastXtreamCall).isEqualTo(
+            XtreamCall(
+                serverUrl = "http://tvappapk@extapk2302.shop:8080",
+                username = "Hakan1605",
+                password = "wg9daUwzfV",
+                name = "Imported Playlist",
+                xtreamFastSyncEnabled = true,
+                epgSyncMode = ProviderEpgSyncMode.BACKGROUND,
+                id = 19L
+            )
+        )
+    }
 }
 
 private class FakeProviderSetupInputValidator(

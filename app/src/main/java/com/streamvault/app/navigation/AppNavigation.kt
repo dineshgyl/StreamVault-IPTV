@@ -242,8 +242,11 @@ fun AppNavigation(mainActivity: MainActivity) {
         if (currentRoute == route || currentRoute?.startsWith("$route?") == true) return
 
         navController.navigate(route) {
-            popUpTo(Routes.HOME)
+            popUpTo(navController.graph.startDestinationId) {
+                saveState = true
+            }
             launchSingleTop = true
+            restoreState = true
         }
     }
 
@@ -554,12 +557,13 @@ fun AppNavigation(mainActivity: MainActivity) {
                 episodeNumber = playerRequest?.episodeNumber,
                 onBack = {
                     val route = playerRequest?.returnRoute
-                    if (navController.previousBackStackEntry != null) {
-                        navController.popBackStack()
+                    if (!route.isNullOrBlank() && navController.popBackStack(route, false)) {
+                        Unit
                     } else if (!route.isNullOrBlank()) {
                         navController.navigate(route) {
                             popUpTo(Routes.PLAYER) { inclusive = true }
                             launchSingleTop = true
+                            restoreState = true
                         }
                     } else {
                         navController.popBackStack()
@@ -584,10 +588,16 @@ fun AppNavigation(mainActivity: MainActivity) {
             )
         ) { backStackEntry ->
             val returnRoute = backStackEntry.arguments?.getString("returnRoute").orEmpty().takeIf { it.isNotBlank() }
+            val movieId = backStackEntry.arguments?.getLong("movieId") ?: -1L
             com.streamvault.app.ui.screens.movies.MovieDetailScreen(
                 onPlay = { movie ->
                     navController.navigateToPlayer(
-                        Routes.moviePlayer(movie).copy(returnRoute = returnRoute)
+                        Routes.moviePlayer(movie).copy(
+                            returnRoute = Routes.movieDetail(
+                                movieId = movie.id.takeIf { it > 0L } ?: movieId,
+                                returnRoute = returnRoute
+                            )
+                        )
                     )
                 },
                 onBack = {
@@ -611,10 +621,16 @@ fun AppNavigation(mainActivity: MainActivity) {
             )
         ) { backStackEntry ->
             val returnRoute = backStackEntry.arguments?.getString("returnRoute").orEmpty().takeIf { it.isNotBlank() }
+            val seriesId = backStackEntry.arguments?.getLong("seriesId") ?: -1L
             com.streamvault.app.ui.screens.series.SeriesDetailScreen(
                 onEpisodeClick = { episode ->
                      navController.navigateToPlayer(
-                         Routes.episodePlayer(episode).copy(returnRoute = returnRoute)
+                         Routes.episodePlayer(episode).copy(
+                             returnRoute = Routes.seriesDetail(
+                                 seriesId = episode.seriesId.takeIf { it > 0L } ?: seriesId,
+                                 returnRoute = returnRoute
+                             )
+                         )
                      )
                 },
                 onBack = {
