@@ -28,6 +28,7 @@ import com.streamvault.domain.model.RecordingStatus
 import com.streamvault.domain.model.ProviderType
 import com.streamvault.domain.model.Result
 import com.streamvault.domain.model.Series
+import com.streamvault.domain.model.StreamInfo
 import com.streamvault.domain.model.VirtualCategoryIds
 import com.streamvault.domain.model.VideoFormat
 import com.streamvault.domain.usecase.GetCustomCategories
@@ -43,6 +44,10 @@ import com.streamvault.player.PlaybackState
 import com.streamvault.player.PlayerEngine
 import com.streamvault.player.PlayerError
 import com.streamvault.player.PlayerSubtitleStyle
+import com.streamvault.player.timeshift.LiveTimeshiftBackend
+import com.streamvault.player.timeshift.LiveTimeshiftState
+import com.streamvault.player.timeshift.LiveTimeshiftStatus
+import com.streamvault.player.timeshift.TimeshiftConfig
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
@@ -172,6 +177,8 @@ class PlayerViewModel @Inject constructor(
     val recordingItems: StateFlow<List<RecordingItem>> = _recordingItems.asStateFlow()
     private val currentChannelFlowRecording = MutableStateFlow<RecordingItem?>(null)
     val currentChannelRecording: StateFlow<RecordingItem?> = currentChannelFlowRecording.asStateFlow()
+    private val _timeshiftUiState = MutableStateFlow(PlayerTimeshiftUiState())
+    val timeshiftUiState: StateFlow<PlayerTimeshiftUiState> = _timeshiftUiState.asStateFlow()
 
     internal var channelInfoHideJob: Job? = null
     internal var liveOverlayHideJob: Job? = null
@@ -199,6 +206,7 @@ class PlayerViewModel @Inject constructor(
     private var playerNoticeTimeoutMs: Long = 6_000L
     internal var diagnosticsTimeoutMs: Long = 15_000L
     private var preferredDecoderMode: DecoderMode = DecoderMode.AUTO
+    private var timeshiftConfig: TimeshiftConfig = TimeshiftConfig()
 
     // Zapping state
     internal var channelList: List<com.streamvault.domain.model.Channel> = emptyList()
@@ -236,6 +244,73 @@ class PlayerViewModel @Inject constructor(
         if (result is com.streamvault.domain.model.Result.Error) {
             android.util.Log.w("PlayerVM", "$operation failed: ${result.message}", result.exception)
         }
+    }
+
+    private fun applyTimeshiftState(state: LiveTimeshiftState) {
+        val backendLabel = when (state.backend) {
+            LiveTimeshiftBackend.DISK -> "Disk"
+            LiveTimeshiftBackend.MEMORY -> "Memory"
+            LiveTimeshiftBackend.NONE -> ""
+        }
+        val visibleForLiveUi = timeshiftConfig.enabled &&
+            state.status != LiveTimeshiftStatus.DISABLED &&
+            state.status != LiveTimeshiftStatus.UNSUPPORTED &&
+            state.status != LiveTimeshiftStatus.FAILED
+        _timeshiftUiState.value = PlayerTimeshiftUiState(
+            available = visibleForLiveUi,
+            enabledForSession = timeshiftConfig.enabled,
+            backendLabel = backendLabel,
+            bufferedBehindLiveMs = state.currentOffsetFromLiveMs,
+            bufferDepthMs = state.bufferedDurationMs.takeIf { it > 0L } ?: timeshiftConfig.depthMs,
+            canSeekToLive = state.canSeekToLive,
+            statusMessage = state.message.orEmpty(),
+            engineState = state
+        )
+    }
+
+    private fun maybeStartLiveTimeshift(streamInfoOverride: StreamInfo? = null) {
+        if (currentContentType != ContentType.LIVE || !timeshiftConfig.enabled) {
+            playerEngine.stopLiveTimeshift()
+            return
+        }
+        if (currentStreamClassLabel == "Catch-up") {
+            playerEngine.stopLiveTimeshift()
+            return
+        }
+        val resolvedCandidate = currentResolvedPlaybackUrl.safeTrimmedOrNull()
+        val currentCandidate = currentStreamUrl.safeTrimmedOrNull()
+        val fallbackUrl = resolvedCandidate ?: currentCandidate ?: run {
+            playerEngine.stopLiveTimeshift()
+            _timeshiftUiState.update {
+                it.copy(
+                    available = false,
+                    enabledForSession = timeshiftConfig.enabled,
+                    statusMessage = "Local live rewind is unavailable for this stream."
+                )
+            }
+            return
+        }
+        val streamInfo = streamInfoOverride ?: StreamInfo(
+            url = fallbackUrl,
+            title = playbackTitleFlow.value.ifBlank { currentTitle }
+        )
+        val channelKey = currentChannel.value?.id?.toString()
+            ?: currentContentId.takeIf { it > 0L }?.toString()
+            ?: fallbackUrl
+        _timeshiftUiState.update {
+            it.copy(
+                available = true,
+                enabledForSession = true,
+                statusMessage = "Preparing local live rewind…",
+                bufferDepthMs = timeshiftConfig.depthMs
+            )
+        }
+        playerEngine.startLiveTimeshift(streamInfo, channelKey, timeshiftConfig)
+    }
+
+    private fun String?.safeTrimmedOrNull(): String? {
+        val value = this ?: return null
+        return value.trim().takeIf { it.isNotEmpty() }
     }
 
     init {
@@ -316,6 +391,26 @@ class PlayerViewModel @Inject constructor(
         }
         viewModelScope.launch {
             preferencesRepository.playerMediaSessionEnabled.collect(playerEngine::setMediaSessionEnabled)
+        }
+        viewModelScope.launch {
+            combine(
+                preferencesRepository.playerTimeshiftEnabled,
+                preferencesRepository.playerTimeshiftDepthMinutes
+            ) { enabled, depthMinutes ->
+                TimeshiftConfig(enabled = enabled, depthMinutes = depthMinutes)
+            }.collect { config ->
+                timeshiftConfig = config
+                _timeshiftUiState.update { current ->
+                    current.copy(
+                        enabledForSession = config.enabled,
+                        bufferDepthMs = config.depthMs
+                    )
+                }
+                maybeStartLiveTimeshift()
+            }
+        }
+        viewModelScope.launch {
+            playerEngine.timeshiftState.collect(::applyTimeshiftState)
         }
         viewModelScope.launch {
             preferencesRepository.playerDecoderMode.collect { mode ->
@@ -902,6 +997,7 @@ class PlayerViewModel @Inject constructor(
             recentChannelsFlow.value = emptyList()
             lastVisitedCategoryJob?.cancel()
             _lastVisitedCategory.value = null
+            playerEngine.stopLiveTimeshift()
         }
         hasRetriedWithSoftwareDecoder = false
         playerEngine.setDecoderMode(preferredDecoderMode)
@@ -924,6 +1020,7 @@ class PlayerViewModel @Inject constructor(
                     return@launch
                 }
                 if (!preparePlayer(streamInfo, requestVersion)) return@launch
+                maybeStartLiveTimeshift(streamInfo)
             }
         }
         
@@ -981,6 +1078,7 @@ class PlayerViewModel @Inject constructor(
         }
 
         if (currentContentType == ContentType.LIVE && hasArchiveRequest) {
+            playerEngine.stopLiveTimeshift()
             viewModelScope.launch {
                 val catchUpUrls = try {
                     providerRepository.buildCatchUpUrls(
@@ -1134,12 +1232,14 @@ class PlayerViewModel @Inject constructor(
         if (currentContentType != ContentType.LIVE) {
             viewModelScope.launch { persistPlaybackProgress() }
         }
+        playerEngine.stopLiveTimeshift()
     }
 
     fun handOffPlaybackToMultiView() {
         if (currentContentType != ContentType.LIVE) {
             viewModelScope.launch { persistPlaybackProgress() }
         }
+        playerEngine.stopLiveTimeshift()
         playerEngine.release()
     }
 
@@ -1704,10 +1804,28 @@ class PlayerViewModel @Inject constructor(
         return false
     }
 
-    fun play() = playerEngine.play()
-    fun pause() = playerEngine.pause()
+    fun play() {
+        if (currentContentType == ContentType.LIVE &&
+            timeshiftConfig.enabled &&
+            timeshiftUiState.value.engineState.status == LiveTimeshiftStatus.PAUSED_BEHIND_LIVE
+        ) {
+            playerEngine.resumeTimeshift()
+        } else {
+            playerEngine.play()
+        }
+    }
+
+    fun pause() {
+        if (currentContentType == ContentType.LIVE && timeshiftConfig.enabled) {
+            playerEngine.pauseTimeshift()
+        } else {
+            playerEngine.pause()
+        }
+    }
+
     fun seekForward() = playerEngine.seekForward()
     fun seekBackward() = playerEngine.seekBackward()
+    fun seekToLiveEdge() = playerEngine.seekToLiveEdge()
 
     fun playEpisode(episode: Episode, showResumePrompt: Boolean = true) {
         prepare(

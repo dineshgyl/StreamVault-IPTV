@@ -60,6 +60,8 @@ internal fun observeSettingsPreferenceSnapshot(
             subtitleBackgroundColor = 0x80000000.toInt(),
             wifiMaxVideoHeight = null,
             ethernetMaxVideoHeight = null,
+            playerTimeshiftEnabled = false,
+            playerTimeshiftDepthMinutes = 30,
             lastSpeedTestMegabits = null,
             lastSpeedTestTimestamp = null,
             lastSpeedTestTransport = null,
@@ -114,6 +116,10 @@ internal fun observeSettingsPreferenceSnapshot(
         snapshot.copy(wifiMaxVideoHeight = wifiMaxVideoHeight)
     }.combine(preferencesRepository.playerEthernetMaxVideoHeight) { snapshot, ethernetMaxVideoHeight ->
         snapshot.copy(ethernetMaxVideoHeight = ethernetMaxVideoHeight)
+    }.combine(preferencesRepository.playerTimeshiftEnabled) { snapshot, enabled ->
+        snapshot.copy(playerTimeshiftEnabled = enabled)
+    }.combine(preferencesRepository.playerTimeshiftDepthMinutes) { snapshot, depthMinutes ->
+        snapshot.copy(playerTimeshiftDepthMinutes = depthMinutes)
     }.combine(preferencesRepository.lastSpeedTestMegabits) { snapshot, lastSpeedTestMegabits ->
         snapshot.copy(lastSpeedTestMegabits = lastSpeedTestMegabits)
     }.combine(preferencesRepository.lastSpeedTestTimestamp) { snapshot, lastSpeedTestTimestamp ->
@@ -188,6 +194,8 @@ internal fun SettingsUiState.applyPreferenceSnapshot(snapshot: SettingsPreferenc
         subtitleBackgroundColor = snapshot.subtitleBackgroundColor,
         wifiMaxVideoHeight = snapshot.wifiMaxVideoHeight,
         ethernetMaxVideoHeight = snapshot.ethernetMaxVideoHeight,
+        playerTimeshiftEnabled = snapshot.playerTimeshiftEnabled,
+        playerTimeshiftDepthMinutes = snapshot.playerTimeshiftDepthMinutes,
         lastSpeedTest = snapshot.lastSpeedTestMegabits?.let {
             InternetSpeedTestUiModel(
                 megabitsPerSecond = it,

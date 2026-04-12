@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -33,6 +34,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
@@ -44,6 +47,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
@@ -53,7 +57,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.foundation.layout.offset
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -63,6 +66,7 @@ import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.Border
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.Surface
+import androidx.tv.material3.SurfaceDefaults
 import androidx.tv.material3.Text
 import coil3.compose.AsyncImage
 import com.streamvault.app.R
@@ -72,6 +76,7 @@ import com.streamvault.app.ui.components.rememberCrossfadeImageModel
 import com.streamvault.app.ui.components.shell.StatusPill
 import com.streamvault.app.ui.design.AppColors
 import com.streamvault.app.ui.screens.player.PlayerDiagnosticsUiState
+import com.streamvault.app.ui.screens.player.PlayerTimeshiftUiState
 import com.streamvault.domain.model.RecordingStatus
 import com.streamvault.app.ui.design.AppColors.Brand as Primary
 import com.streamvault.app.ui.design.AppColors.SurfaceElevated as SurfaceVariant
@@ -80,6 +85,7 @@ import com.streamvault.app.ui.design.AppColors.TextTertiary as OnSurfaceDim
 import com.streamvault.domain.model.Channel
 import com.streamvault.domain.model.Program
 import com.streamvault.player.PlayerStats
+import com.streamvault.player.timeshift.LiveTimeshiftStatus
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -172,10 +178,17 @@ fun ChannelInfoOverlay(
     currentRecordingStatus: RecordingStatus?,
     onStartRecording: () -> Unit,
     onStopRecording: () -> Unit,
+    onScheduleRecording: () -> Unit,
+    onScheduleDailyRecording: () -> Unit,
+    onScheduleWeeklyRecording: () -> Unit,
     onRestartProgram: () -> Unit,
+    onOpenArchive: () -> Unit,
     onToggleAspectRatio: () -> Unit,
     onToggleDiagnostics: () -> Unit,
     onTogglePlayPause: () -> Unit,
+    onSeekBackward: () -> Unit,
+    onSeekForward: () -> Unit,
+    onSeekToLiveEdge: () -> Unit,
     isPlaying: Boolean,
     currentAspectRatio: String,
     isDiagnosticsEnabled: Boolean,
@@ -191,11 +204,54 @@ fun ChannelInfoOverlay(
     onEnterPictureInPicture: () -> Unit = {},
     isCastConnected: Boolean = false,
     onCast: () -> Unit = {},
-    onStopCasting: () -> Unit = {}
+    onStopCasting: () -> Unit = {},
+    timeshiftUiState: PlayerTimeshiftUiState = PlayerTimeshiftUiState(),
+    onTransientPanelVisibilityChanged: (Boolean) -> Unit = {}
 ) {
     val timeFormat = SimpleDateFormat("HH:mm", Locale.getDefault())
+    val showTimeshiftControls = timeshiftUiState.available && !isCastConnected
+    val hasCatchUpOptions = currentChannel?.catchUpSupported == true || currentProgram?.hasArchive == true
+    var expandedPanel by remember { mutableStateOf<ChannelInfoPanel?>(null) }
+    val recordButtonFocusRequester = remember { FocusRequester() }
+    val catchUpButtonFocusRequester = remember { FocusRequester() }
+    val liveDvrPanelFocusRequester = remember { FocusRequester() }
+    val recordPanelFocusRequester = remember { FocusRequester() }
+    val catchUpPanelFocusRequester = remember { FocusRequester() }
 
-    BackHandler { onDismiss() }
+    fun handleMainActionFocus(ownerPanel: ChannelInfoPanel?) {
+        onOverlayInteracted()
+        if (expandedPanel != null && expandedPanel != ownerPanel) {
+            expandedPanel = null
+        }
+    }
+
+    fun togglePanel(panel: ChannelInfoPanel) {
+        expandedPanel = if (expandedPanel == panel) null else panel
+    }
+
+    LaunchedEffect(showTimeshiftControls, hasCatchUpOptions) {
+        expandedPanel = when (expandedPanel) {
+            ChannelInfoPanel.LIVE_DVR -> expandedPanel.takeIf { showTimeshiftControls }
+            ChannelInfoPanel.CATCH_UP -> expandedPanel.takeIf { hasCatchUpOptions }
+            else -> expandedPanel
+        }
+    }
+
+    LaunchedEffect(expandedPanel) {
+        onTransientPanelVisibilityChanged(expandedPanel != null)
+    }
+
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        onDispose { onTransientPanelVisibilityChanged(false) }
+    }
+
+    BackHandler {
+        if (expandedPanel != null) {
+            expandedPanel = null
+        } else {
+            onDismiss()
+        }
+    }
 
     PlayerOverlayPanel(
         modifier = Modifier
@@ -245,6 +301,23 @@ fun ChannelInfoOverlay(
                                 label = stringResource(R.string.player_live_channel, displayChannelNumber),
                                 containerColor = AppColors.BrandMuted
                             )
+                            if (showTimeshiftControls) {
+                                StatusPill(
+                                    label = stringResource(R.string.player_live_rewind_badge),
+                                    containerColor = AppColors.SurfaceEmphasis
+                                )
+                            }
+                            if (currentRecordingStatus == RecordingStatus.RECORDING) {
+                                StatusPill(
+                                    label = stringResource(R.string.player_recording_badge),
+                                    containerColor = AppColors.Live
+                                )
+                            } else if (currentRecordingStatus == RecordingStatus.SCHEDULED) {
+                                StatusPill(
+                                    label = stringResource(R.string.player_recording_scheduled_badge),
+                                    containerColor = AppColors.BrandMuted
+                                )
+                            }
                             if (currentChannel != null) {
                                 Text(
                                     text = currentChannel.name,
@@ -352,6 +425,20 @@ fun ChannelInfoOverlay(
                 }
             }
 
+            if (showTimeshiftControls && expandedPanel == ChannelInfoPanel.LIVE_DVR) {
+                CompactTimeshiftTransport(
+                    timeshiftUiState = timeshiftUiState,
+                    isPlaying = isPlaying,
+                    onOverlayInteracted = onOverlayInteracted,
+                    onTogglePlayPause = onTogglePlayPause,
+                    onSeekBackward = onSeekBackward,
+                    onSeekForward = onSeekForward,
+                    onSeekToLiveEdge = onSeekToLiveEdge,
+                    firstFocusRequester = liveDvrPanelFocusRequester,
+                    ownerFocusRequester = focusRequester
+                )
+            }
+
             LazyRow(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -360,30 +447,46 @@ fun ChannelInfoOverlay(
             ) {
                 item {
                     QuickActionButton(
-                        icon = stringResource(R.string.player_action_playback),
-                        label = if (isPlaying) stringResource(R.string.player_pause) else stringResource(R.string.player_play),
-                        onClick = {
-                            onOverlayInteracted()
-                            onTogglePlayPause()
+                        icon = if (showTimeshiftControls) "DVR" else stringResource(R.string.player_action_playback),
+                        label = if (showTimeshiftControls) {
+                            stringResource(R.string.player_live_dvr_controls)
+                        } else if (isPlaying) {
+                            stringResource(R.string.player_pause)
+                        } else {
+                            stringResource(R.string.player_play)
                         },
-                        onInteraction = onOverlayInteracted,
+                        onClick = {
+                            if (showTimeshiftControls) {
+                                togglePanel(ChannelInfoPanel.LIVE_DVR)
+                            } else {
+                                onTogglePlayPause()
+                            }
+                        },
+                        onInteraction = { handleMainActionFocus(ChannelInfoPanel.LIVE_DVR.takeIf { showTimeshiftControls }) },
                         colors = ClickableSurfaceDefaults.colors(
-                            containerColor = Primary.copy(alpha = 0.20f),
+                            containerColor = if (expandedPanel == ChannelInfoPanel.LIVE_DVR) {
+                                Primary.copy(alpha = 0.30f)
+                            } else {
+                                Primary.copy(alpha = 0.20f)
+                            },
                             focusedContainerColor = Primary,
                             pressedContainerColor = Primary.copy(alpha = 0.8f)
                         ),
-                        modifier = Modifier.focusRequester(focusRequester)
+                        modifier = Modifier
+                            .focusRequester(focusRequester)
+                            .focusProperties {
+                                if (expandedPanel == ChannelInfoPanel.LIVE_DVR) {
+                                    up = liveDvrPanelFocusRequester
+                                }
+                            }
                     )
                 }
                 item {
                     QuickActionButton(
                         icon = stringResource(R.string.player_action_mute),
                         label = if (isMuted) stringResource(R.string.player_unmute) else stringResource(R.string.player_mute),
-                        onClick = {
-                            onOverlayInteracted()
-                            onToggleMute()
-                        },
-                        onInteraction = onOverlayInteracted
+                        onClick = onToggleMute,
+                        onInteraction = { handleMainActionFocus(null) }
                     )
                 }
                 if (subtitleTrackCount > 0) {
@@ -391,11 +494,8 @@ fun ChannelInfoOverlay(
                         QuickActionButton(
                             icon = stringResource(R.string.player_subs),
                             label = stringResource(R.string.player_subs),
-                            onClick = {
-                                onOverlayInteracted()
-                                onOpenSubtitleTracks()
-                            },
-                            onInteraction = onOverlayInteracted
+                            onClick = onOpenSubtitleTracks,
+                            onInteraction = { handleMainActionFocus(null) }
                         )
                     }
                 }
@@ -404,11 +504,8 @@ fun ChannelInfoOverlay(
                         QuickActionButton(
                             icon = stringResource(R.string.player_action_quality),
                             label = stringResource(R.string.player_quality_short),
-                            onClick = {
-                                onOverlayInteracted()
-                                onOpenVideoTracks()
-                            },
-                            onInteraction = onOverlayInteracted
+                            onClick = onOpenVideoTracks,
+                            onInteraction = { handleMainActionFocus(null) }
                         )
                     }
                 }
@@ -417,11 +514,8 @@ fun ChannelInfoOverlay(
                         QuickActionButton(
                             icon = stringResource(R.string.player_audio),
                             label = stringResource(R.string.player_audio),
-                            onClick = {
-                                onOverlayInteracted()
-                                onOpenAudioTracks()
-                            },
-                            onInteraction = onOverlayInteracted
+                            onClick = onOpenAudioTracks,
+                            onInteraction = { handleMainActionFocus(null) }
                         )
                     }
                 }
@@ -430,10 +524,11 @@ fun ChannelInfoOverlay(
                         icon = stringResource(R.string.player_action_guide),
                         label = stringResource(R.string.player_epg_short),
                         onClick = {
-                            onOverlayInteracted()
+                            expandedPanel = null
+                            onDismiss()
                             onOpenFullEpg()
                         },
-                        onInteraction = onOverlayInteracted
+                        onInteraction = { handleMainActionFocus(null) }
                     )
                 }
                 item {
@@ -441,11 +536,11 @@ fun ChannelInfoOverlay(
                         icon = stringResource(R.string.player_action_split),
                         label = stringResource(R.string.player_multiview_short),
                         onClick = {
-                            onOverlayInteracted()
+                            expandedPanel = null
                             onDismiss()
                             onOpenSplitScreen()
                         },
-                        onInteraction = onOverlayInteracted
+                        onInteraction = { handleMainActionFocus(null) }
                     )
                 }
                 item {
@@ -453,10 +548,10 @@ fun ChannelInfoOverlay(
                         icon = stringResource(R.string.player_action_diagnostics),
                         label = stringResource(R.string.player_stats),
                         onClick = {
-                            onOverlayInteracted()
+                            expandedPanel = null
                             onToggleDiagnostics()
                         },
-                        onInteraction = onOverlayInteracted
+                        onInteraction = { handleMainActionFocus(null) }
                     )
                 }
                 if (!lastVisitedCategoryName.isNullOrBlank()) {
@@ -465,61 +560,50 @@ fun ChannelInfoOverlay(
                             icon = stringResource(R.string.player_action_group),
                             label = lastVisitedCategoryName,
                             onClick = {
-                                onOverlayInteracted()
+                                expandedPanel = null
                                 onOpenLastGroup()
                             },
-                            onInteraction = onOverlayInteracted
+                            onInteraction = { handleMainActionFocus(null) }
                         )
                     }
                 }
                 item {
                     QuickActionButton(
-                        icon = if (currentRecordingStatus == RecordingStatus.RECORDING) {
-                            stringResource(R.string.player_stop_recording)
-                        } else {
-                            stringResource(R.string.player_record)
-                        },
-                        label = if (currentRecordingStatus == RecordingStatus.RECORDING) {
-                            stringResource(R.string.player_stop_recording)
-                        } else {
-                            stringResource(R.string.player_record)
-                        },
-                        onClick = {
-                            onOverlayInteracted()
-                            if (currentRecordingStatus == RecordingStatus.RECORDING) {
-                                onStopRecording()
-                            } else {
-                                onStartRecording()
+                        icon = "REC",
+                        label = stringResource(R.string.player_record),
+                        onClick = { togglePanel(ChannelInfoPanel.RECORD) },
+                        onInteraction = { handleMainActionFocus(ChannelInfoPanel.RECORD) },
+                        colors = ClickableSurfaceDefaults.colors(
+                            containerColor = if (expandedPanel == ChannelInfoPanel.RECORD) Primary.copy(alpha = 0.22f) else AppColors.SurfaceEmphasis,
+                            focusedContainerColor = Primary.copy(alpha = 0.85f)
+                        ),
+                        modifier = Modifier
+                            .focusRequester(recordButtonFocusRequester)
+                            .focusProperties {
+                                if (expandedPanel == ChannelInfoPanel.RECORD) {
+                                    up = recordPanelFocusRequester
+                                }
                             }
-                        },
-                        onInteraction = onOverlayInteracted
                     )
                 }
-                if (currentChannel?.catchUpSupported == true) {
+                if (hasCatchUpOptions) {
                     item {
                         QuickActionButton(
-                            icon = stringResource(R.string.player_catchup_badge),
-                            label = stringResource(R.string.player_archive),
-                            onClick = {
-                                onOverlayInteracted()
-                                onDismiss()
-                                onOpenFullEpg()
-                            },
-                            onInteraction = onOverlayInteracted
-                        )
-                    }
-                }
-                if (currentChannel?.catchUpSupported == true && currentProgram?.hasArchive == true) {
-                    item {
-                        QuickActionButton(
-                            icon = stringResource(R.string.player_action_restart_short),
-                            label = stringResource(R.string.player_restart),
-                            onClick = {
-                                onOverlayInteracted()
-                                onRestartProgram()
-                                onDismiss()
-                            },
-                            onInteraction = onOverlayInteracted
+                            icon = "C-UP",
+                            label = stringResource(R.string.player_catchup_badge),
+                            onClick = { togglePanel(ChannelInfoPanel.CATCH_UP) },
+                            onInteraction = { handleMainActionFocus(ChannelInfoPanel.CATCH_UP) },
+                            colors = ClickableSurfaceDefaults.colors(
+                                containerColor = if (expandedPanel == ChannelInfoPanel.CATCH_UP) Primary.copy(alpha = 0.22f) else AppColors.SurfaceEmphasis,
+                                focusedContainerColor = Primary.copy(alpha = 0.85f)
+                            ),
+                            modifier = Modifier
+                                .focusRequester(catchUpButtonFocusRequester)
+                                .focusProperties {
+                                    if (expandedPanel == ChannelInfoPanel.CATCH_UP) {
+                                        up = catchUpPanelFocusRequester
+                                    }
+                                }
                         )
                     }
                 }
@@ -528,10 +612,10 @@ fun ChannelInfoOverlay(
                         icon = stringResource(R.string.player_action_cast),
                         label = if (isCastConnected) stringResource(R.string.player_stop_casting) else stringResource(R.string.player_cast),
                         onClick = {
-                            onOverlayInteracted()
+                            expandedPanel = null
                             if (isCastConnected) onStopCasting() else onCast()
                         },
-                        onInteraction = onOverlayInteracted
+                        onInteraction = { handleMainActionFocus(null) }
                     )
                 }
                 item {
@@ -539,10 +623,10 @@ fun ChannelInfoOverlay(
                         icon = stringResource(R.string.player_action_pip),
                         label = stringResource(R.string.player_pip_short),
                         onClick = {
-                            onOverlayInteracted()
+                            expandedPanel = null
                             onEnterPictureInPicture()
                         },
-                        onInteraction = onOverlayInteracted
+                        onInteraction = { handleMainActionFocus(null) }
                     )
                 }
                 item {
@@ -550,14 +634,437 @@ fun ChannelInfoOverlay(
                         icon = stringResource(R.string.player_action_view),
                         label = currentAspectRatio,
                         onClick = {
-                            onOverlayInteracted()
+                            expandedPanel = null
                             onToggleAspectRatio()
                         },
-                        onInteraction = onOverlayInteracted
+                        onInteraction = { handleMainActionFocus(null) }
+                    )
+                }
+            }
+
+            when (expandedPanel) {
+                ChannelInfoPanel.RECORD -> {
+                    ChannelInfoActionMenuTray(
+                        title = stringResource(R.string.player_record_options),
+                        actions = buildList {
+                            if (currentRecordingStatus == RecordingStatus.RECORDING || currentRecordingStatus == RecordingStatus.SCHEDULED) {
+                                add(
+                                    ChannelInfoMenuEntry(
+                                        label = if (currentRecordingStatus == RecordingStatus.SCHEDULED) {
+                                            stringResource(R.string.player_cancel_scheduled_recording)
+                                        } else {
+                                            stringResource(R.string.player_stop_recording)
+                                        }
+                                    ) {
+                                        expandedPanel = null
+                                        onStopRecording()
+                                    }
+                                )
+                            } else {
+                                add(
+                                    ChannelInfoMenuEntry(stringResource(R.string.player_record_now)) {
+                                        expandedPanel = null
+                                        onStartRecording()
+                                    }
+                                )
+                            }
+                            add(ChannelInfoMenuEntry(stringResource(R.string.player_schedule_recording)) {
+                                expandedPanel = null
+                                onScheduleRecording()
+                            })
+                            add(ChannelInfoMenuEntry(stringResource(R.string.player_schedule_daily_recording)) {
+                                expandedPanel = null
+                                onScheduleDailyRecording()
+                            })
+                            add(ChannelInfoMenuEntry(stringResource(R.string.player_schedule_weekly_recording)) {
+                                expandedPanel = null
+                                onScheduleWeeklyRecording()
+                            })
+                        },
+                        onInteraction = onOverlayInteracted,
+                        firstActionFocusRequester = recordPanelFocusRequester,
+                        ownerFocusRequester = recordButtonFocusRequester
+                    )
+                }
+
+                ChannelInfoPanel.CATCH_UP -> {
+                    ChannelInfoActionMenuTray(
+                        title = stringResource(R.string.player_catchup_options),
+                        actions = buildList {
+                            if (currentProgram?.hasArchive == true) {
+                                add(ChannelInfoMenuEntry(stringResource(R.string.player_restart)) {
+                                    expandedPanel = null
+                                    onRestartProgram()
+                                    onDismiss()
+                                })
+                            }
+                            if (currentChannel?.catchUpSupported == true) {
+                                add(ChannelInfoMenuEntry(stringResource(R.string.player_browse_archive)) {
+                                    expandedPanel = null
+                                    onDismiss()
+                                    onOpenArchive()
+                                })
+                            }
+                            add(ChannelInfoMenuEntry(stringResource(R.string.player_browse_guide_catchup)) {
+                                expandedPanel = null
+                                onDismiss()
+                                onOpenFullEpg()
+                            })
+                        },
+                        onInteraction = onOverlayInteracted,
+                        firstActionFocusRequester = catchUpPanelFocusRequester,
+                        ownerFocusRequester = catchUpButtonFocusRequester
+                    )
+                }
+
+                ChannelInfoPanel.LIVE_DVR,
+                null -> Unit
+            }
+        }
+    }
+}
+
+private enum class ChannelInfoPanel {
+    LIVE_DVR,
+    RECORD,
+    CATCH_UP
+}
+
+private data class ChannelInfoMenuEntry(
+    val label: String,
+    val onClick: () -> Unit
+)
+
+@Composable
+private fun CompactTimeshiftTransport(
+    timeshiftUiState: PlayerTimeshiftUiState,
+    isPlaying: Boolean,
+    onOverlayInteracted: () -> Unit,
+    onTogglePlayPause: () -> Unit,
+    onSeekBackward: () -> Unit,
+    onSeekForward: () -> Unit,
+    onSeekToLiveEdge: () -> Unit,
+    firstFocusRequester: FocusRequester,
+    ownerFocusRequester: FocusRequester
+) {
+    val transportReady = timeshiftUiState.bufferDepthMs > 1_000L &&
+        timeshiftUiState.engineState.status != LiveTimeshiftStatus.PREPARING
+    val behindLive = timeshiftUiState.bufferedBehindLiveMs.coerceAtLeast(0L)
+    val bufferDepth = timeshiftUiState.bufferDepthMs.coerceAtLeast(0L)
+    val liveProgress = if (bufferDepth > 0L) {
+        ((bufferDepth - behindLive).toFloat() / bufferDepth.toFloat()).coerceIn(0f, 1f)
+    } else {
+        1f
+    }
+    val statusLine = when {
+        !transportReady -> timeshiftUiState.statusMessage.ifBlank {
+            stringResource(R.string.player_live_timeshift_buffering)
+        }
+        behindLive > 1_000L -> stringResource(
+            R.string.player_live_offset,
+            formatTimeLabel(behindLive)
+        )
+        else -> stringResource(R.string.player_live_ready)
+    }
+    var lastTransportActionAtMs by remember { mutableStateOf(0L) }
+
+    fun runTransportAction(enabled: Boolean, action: () -> Unit) {
+        if (!enabled) return
+        val now = System.currentTimeMillis()
+        if (now - lastTransportActionAtMs < 240L) return
+        lastTransportActionAtMs = now
+        onOverlayInteracted()
+        action()
+    }
+
+    Surface(
+        shape = RoundedCornerShape(18.dp),
+        colors = SurfaceDefaults.colors(containerColor = Color.White.copy(alpha = 0.06f))
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    colors = SurfaceDefaults.colors(containerColor = Color.Black.copy(alpha = 0.22f))
+                ) {
+                    Column(
+                        modifier = Modifier.padding(horizontal = 9.dp, vertical = 7.dp),
+                        verticalArrangement = Arrangement.spacedBy(2.dp)
+                    ) {
+                        Text(
+                            text = stringResource(R.string.player_live_rewind_badge),
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                            color = Primary
+                        )
+                        Text(
+                            text = statusLine,
+                            style = MaterialTheme.typography.titleSmall.copy(fontSize = 20.sp),
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold
+                        )
+                        Text(
+                            text = stringResource(
+                                R.string.player_live_buffer_depth,
+                                formatTimeLabel(bufferDepth)
+                            ),
+                            style = MaterialTheme.typography.labelMedium,
+                            color = Color.White.copy(alpha = 0.7f)
+                        )
+                    }
+                }
+
+                Row(
+                    modifier = Modifier.weight(1f),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    CompactTransportButton(
+                        topLabel = stringResource(R.string.player_rewind),
+                        mainLabel = stringResource(R.string.player_seek_back_10),
+                        enabled = transportReady,
+                        onInteraction = onOverlayInteracted,
+                        onClick = { runTransportAction(transportReady, onSeekBackward) },
+                        modifier = Modifier
+                            .focusRequester(firstFocusRequester)
+                            .focusProperties { down = ownerFocusRequester }
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    TvClickableSurface(
+                        onClick = { runTransportAction(transportReady, onTogglePlayPause) },
+                        enabled = transportReady,
+                        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(999.dp)),
+                        colors = ClickableSurfaceDefaults.colors(
+                            containerColor = Primary.copy(alpha = 0.88f),
+                            focusedContainerColor = Primary,
+                            disabledContainerColor = Primary.copy(alpha = 0.28f)
+                        ),
+                        modifier = Modifier
+                            .size(52.dp)
+                            .focusProperties { down = ownerFocusRequester }
+                    ) {
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            if (isPlaying) {
+                                Text(
+                                    text = "II",
+                                    style = MaterialTheme.typography.headlineSmall,
+                                    color = Color.White
+                                )
+                            } else {
+                                androidx.tv.material3.Icon(
+                                    imageVector = Icons.Default.PlayArrow,
+                                    contentDescription = stringResource(R.string.player_play),
+                                    tint = Color.White,
+                                    modifier = Modifier.size(26.dp)
+                                )
+                            }
+                        }
+                    }
+                    Spacer(modifier = Modifier.width(8.dp))
+                    CompactTransportButton(
+                        topLabel = stringResource(R.string.player_forward),
+                        mainLabel = stringResource(R.string.player_seek_forward_10),
+                        enabled = transportReady && timeshiftUiState.canSeekToLive,
+                        onInteraction = onOverlayInteracted,
+                        onClick = { runTransportAction(transportReady && timeshiftUiState.canSeekToLive, onSeekForward) },
+                        modifier = Modifier.focusProperties { down = ownerFocusRequester }
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    CompactTransportButton(
+                        topLabel = stringResource(R.string.player_live_ready),
+                        mainLabel = stringResource(R.string.player_jump_to_live_short),
+                        enabled = transportReady && timeshiftUiState.canSeekToLive,
+                        highlighted = !timeshiftUiState.canSeekToLive,
+                        onInteraction = onOverlayInteracted,
+                        onClick = { runTransportAction(transportReady && timeshiftUiState.canSeekToLive, onSeekToLiveEdge) },
+                        modifier = Modifier.focusProperties { down = ownerFocusRequester }
+                    )
+                }
+            }
+
+            androidx.compose.material3.LinearProgressIndicator(
+                progress = { liveProgress },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(4.dp)
+                    .clip(RoundedCornerShape(999.dp)),
+                color = Primary,
+                trackColor = Color.White.copy(alpha = 0.16f)
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = stringResource(R.string.player_live_buffer_start),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.White.copy(alpha = 0.52f)
+                )
+                Text(
+                    text = if (behindLive > 1_000L) {
+                        stringResource(R.string.player_live_offset, formatTimeLabel(behindLive))
+                    } else {
+                        stringResource(R.string.player_live_ready)
+                    },
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.White.copy(alpha = 0.76f)
+                )
+                Text(
+                    text = stringResource(R.string.player_live_buffer_end),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Color.White.copy(alpha = 0.52f)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CompactTransportButton(
+    topLabel: String,
+    mainLabel: String,
+    enabled: Boolean,
+    highlighted: Boolean = false,
+    onInteraction: () -> Unit,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    TvClickableSurface(
+        onClick = onClick,
+        enabled = enabled,
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(12.dp)),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = if (highlighted) {
+                Primary.copy(alpha = 0.18f)
+            } else {
+                Color.White.copy(alpha = 0.08f)
+            },
+            focusedContainerColor = Primary.copy(alpha = 0.86f),
+            disabledContainerColor = Color.White.copy(alpha = 0.04f)
+        ),
+        modifier = modifier
+            .widthIn(min = 68.dp)
+            .onFocusChanged {
+                if (it.isFocused) onInteraction()
+            }
+    ) {
+        Column(
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 6.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(1.dp)
+        ) {
+            Text(
+                text = topLabel,
+                style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                color = Color.White.copy(alpha = if (enabled) 0.72f else 0.32f)
+            )
+            Text(
+                text = mainLabel,
+                style = MaterialTheme.typography.titleSmall.copy(fontSize = 16.sp),
+                color = if (enabled) Color.White else Color.White.copy(alpha = 0.32f),
+                fontWeight = FontWeight.Bold
+            )
+        }
+    }
+}
+
+@Composable
+private fun ChannelInfoActionMenuTray(
+    title: String,
+    actions: List<ChannelInfoMenuEntry>,
+    onInteraction: () -> Unit,
+    firstActionFocusRequester: FocusRequester,
+    ownerFocusRequester: FocusRequester
+) {
+    if (actions.isEmpty()) return
+
+    Surface(
+        shape = RoundedCornerShape(18.dp),
+        colors = SurfaceDefaults.colors(containerColor = Color.Black.copy(alpha = 0.22f))
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 12.dp, vertical = 10.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.labelLarge,
+                color = Primary,
+                fontWeight = FontWeight.Bold
+            )
+            LazyRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                itemsIndexed(actions) { index, action ->
+                    CompactMenuActionButton(
+                        text = action.label,
+                        onClick = action.onClick,
+                        onInteraction = onInteraction,
+                        modifier = (if (index == 0) Modifier.focusRequester(firstActionFocusRequester) else Modifier)
+                            .focusProperties { down = ownerFocusRequester }
                     )
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun CompactMenuActionButton(
+    text: String,
+    onClick: () -> Unit,
+    onInteraction: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    TvClickableSurface(
+        onClick = {
+            onInteraction()
+            onClick()
+        },
+        shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(12.dp)),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = Color.White.copy(alpha = 0.08f),
+            focusedContainerColor = Primary.copy(alpha = 0.88f)
+        ),
+        modifier = modifier
+            .onFocusChanged {
+                if (it.isFocused) onInteraction()
+            }
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.bodyMedium,
+            color = Color.White,
+            fontWeight = FontWeight.Medium,
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
+        )
+    }
+}
+
+private fun formatTimeLabel(ms: Long): String {
+    val totalSeconds = (ms / 1_000L).coerceAtLeast(0L)
+    val hours = totalSeconds / 3_600L
+    val minutes = (totalSeconds % 3_600L) / 60L
+    val seconds = totalSeconds % 60L
+    return if (hours > 0L) {
+        String.format(Locale.getDefault(), "%d:%02d:%02d", hours, minutes, seconds)
+    } else {
+        String.format(Locale.getDefault(), "%d:%02d", minutes, seconds)
     }
 }
 

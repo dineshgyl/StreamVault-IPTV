@@ -167,6 +167,9 @@ fun SettingsScreen(
     val ethernetQualityLabel = remember(uiState.ethernetMaxVideoHeight, context) {
         formatQualityCapLabel(uiState.ethernetMaxVideoHeight, context.getString(R.string.settings_quality_cap_auto))
     }
+    val timeshiftDepthLabel = remember(uiState.playerTimeshiftDepthMinutes, context) {
+        formatTimeshiftDepthLabel(uiState.playerTimeshiftDepthMinutes, context)
+    }
     val lastSpeedTestLabel = remember(uiState.lastSpeedTest) {
         uiState.lastSpeedTest?.let(::formatSpeedTestValueLabel)
             ?: context.getString(R.string.settings_speed_test_not_run)
@@ -211,6 +214,7 @@ fun SettingsScreen(
     var showGuideDefaultCategoryDialog by rememberSaveable { mutableStateOf(false) }
     var showPlaybackSpeedDialog by rememberSaveable { mutableStateOf(false) }
     var showDecoderModeDialog by rememberSaveable { mutableStateOf(false) }
+    var showTimeshiftDepthDialog by rememberSaveable { mutableStateOf(false) }
     var showControlsTimeoutDialog by rememberSaveable { mutableStateOf(false) }
     var showLiveOverlayTimeoutDialog by rememberSaveable { mutableStateOf(false) }
     var showNoticeTimeoutDialog by rememberSaveable { mutableStateOf(false) }
@@ -468,6 +472,45 @@ fun SettingsScreen(
                                     Switch(checked = uiState.playerMediaSessionEnabled, onCheckedChange = { viewModel.setPlayerMediaSessionEnabled(it) })
                                 }
                             }
+                            HorizontalDivider(color = Color.White.copy(alpha = 0.07f), modifier = Modifier.padding(vertical = 4.dp))
+                            TvClickableSurface(
+                                onClick = { viewModel.setPlayerTimeshiftEnabled(!uiState.playerTimeshiftEnabled) },
+                                shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(8.dp)),
+                                colors = ClickableSurfaceDefaults.colors(
+                                    containerColor = Color.Transparent,
+                                    focusedContainerColor = Primary.copy(alpha = 0.15f)
+                                ),
+                                scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 12.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(text = stringResource(R.string.settings_live_timeshift), style = MaterialTheme.typography.bodyMedium, color = OnSurface)
+                                        Text(text = stringResource(R.string.settings_live_timeshift_subtitle), style = MaterialTheme.typography.bodySmall, color = OnBackground.copy(alpha = 0.6f))
+                                    }
+                                    Switch(checked = uiState.playerTimeshiftEnabled, onCheckedChange = { viewModel.setPlayerTimeshiftEnabled(it) })
+                                }
+                            }
+                            ClickableSettingsRow(
+                                label = stringResource(R.string.settings_live_timeshift_depth),
+                                value = timeshiftDepthLabel,
+                                onClick = { showTimeshiftDepthDialog = true }
+                            )
+                            ClickableSettingsRow(
+                                label = stringResource(R.string.settings_live_timeshift_backend),
+                                value = stringResource(R.string.settings_live_timeshift_backend_value),
+                                onClick = {}
+                            )
+                            Text(
+                                text = stringResource(R.string.settings_live_timeshift_backend_subtitle),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = OnBackground.copy(alpha = 0.6f),
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp)
+                            )
                             ClickableSettingsRow(
                                 label = stringResource(R.string.settings_decoder_mode),
                                 value = decoderModeLabel,
@@ -1000,6 +1043,8 @@ fun SettingsScreen(
         onShowPlaybackSpeedDialogChange = { showPlaybackSpeedDialog = it },
         showDecoderModeDialog = showDecoderModeDialog,
         onShowDecoderModeDialogChange = { showDecoderModeDialog = it },
+        showTimeshiftDepthDialog = showTimeshiftDepthDialog,
+        onShowTimeshiftDepthDialogChange = { showTimeshiftDepthDialog = it },
         showControlsTimeoutDialog = showControlsTimeoutDialog,
         onShowControlsTimeoutDialogChange = { showControlsTimeoutDialog = it },
         showLiveOverlayTimeoutDialog = showLiveOverlayTimeoutDialog,
@@ -1079,5 +1124,14 @@ private fun android.content.Context.findMainActivity(): MainActivity? {
         current = current.baseContext
     }
     return null
+}
+
+private fun formatTimeshiftDepthLabel(
+    depthMinutes: Int,
+    context: android.content.Context
+): String = when (depthMinutes) {
+    15 -> context.getString(R.string.settings_live_timeshift_depth_15)
+    60 -> context.getString(R.string.settings_live_timeshift_depth_60)
+    else -> context.getString(R.string.settings_live_timeshift_depth_30)
 }
 

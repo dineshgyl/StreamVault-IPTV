@@ -9,6 +9,8 @@ import com.streamvault.domain.model.VideoFormat
 import androidx.media3.common.PlaybackException
 import com.streamvault.player.playback.PlaybackErrorCategory
 import com.streamvault.player.playback.PlayerErrorClassifier
+import com.streamvault.player.timeshift.LiveTimeshiftState
+import com.streamvault.player.timeshift.TimeshiftConfig
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 
@@ -33,6 +35,7 @@ interface PlayerEngine {
     val availableSubtitleTracks: StateFlow<List<PlayerTrack>>
     val availableVideoTracks: StateFlow<List<PlayerTrack>>
     val playbackSpeed: StateFlow<Float>
+    val timeshiftState: StateFlow<LiveTimeshiftState>
 
     /** In-stream metadata title (ICY / HLS). Null when the stream sends nothing. */
     val mediaTitle: StateFlow<String?>
@@ -49,6 +52,11 @@ interface PlayerEngine {
     fun setVolume(volume: Float)
     fun setMuted(muted: Boolean)
     fun setPlaybackSpeed(speed: Float)
+    fun startLiveTimeshift(streamInfo: StreamInfo, channelKey: String, config: TimeshiftConfig)
+    fun stopLiveTimeshift()
+    fun seekToLiveEdge()
+    fun pauseTimeshift()
+    fun resumeTimeshift()
     fun setPreferredAudioLanguage(languageTag: String?)
     fun setSubtitleStyle(style: PlayerSubtitleStyle)
     fun setNetworkQualityPreferences(wifiMaxHeight: Int?, ethernetMaxHeight: Int?)

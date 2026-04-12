@@ -68,6 +68,7 @@ import com.streamvault.app.R
 import com.streamvault.app.device.rememberIsTelevisionDevice
 import com.streamvault.app.ui.components.rememberCrossfadeImageModel
 import com.streamvault.app.ui.screens.player.NumericChannelInputState
+import com.streamvault.app.ui.screens.player.PlayerTimeshiftUiState
 import com.streamvault.app.ui.screens.player.SeekPreviewState
 import com.streamvault.app.ui.theme.ErrorColor
 import com.streamvault.app.ui.theme.Primary
@@ -108,6 +109,7 @@ fun PlayerControlsOverlay(
     isMuted: Boolean,
     playbackSpeed: Float = 1f,
     mediaTitle: String?,
+    timeshiftUiState: PlayerTimeshiftUiState = PlayerTimeshiftUiState(),
     playButtonFocusRequester: FocusRequester,
     quickActionsFocusRequester: FocusRequester = FocusRequester(),
     onClose: () -> Unit,
@@ -134,6 +136,7 @@ fun PlayerControlsOverlay(
     isCastConnected: Boolean = false,
     onCast: () -> Unit = {},
     onStopCasting: () -> Unit = {},
+    onSeekToLiveEdge: () -> Unit = {},
     onSeekToPosition: (Long) -> Unit = {},
     onSetScrubbingMode: (Boolean) -> Unit = {},
     seekPreview: SeekPreviewState = SeekPreviewState(),
@@ -190,6 +193,7 @@ fun PlayerControlsOverlay(
                 isMuted = isMuted,
                 playbackSpeed = playbackSpeed,
                 mediaTitle = mediaTitle,
+                timeshiftUiState = timeshiftUiState,
                 playButtonFocusRequester = playButtonFocusRequester,
                 quickActionsFocusRequester = quickActionsFocusRequester,
                 modifier = Modifier.align(Alignment.BottomCenter),
@@ -213,6 +217,7 @@ fun PlayerControlsOverlay(
                 isCastConnected = isCastConnected,
                 onCast = onCast,
                 onStopCasting = onStopCasting,
+                onSeekToLiveEdge = onSeekToLiveEdge,
                 onTogglePlayPause = onTogglePlayPause,
                 onSeekBackward = onSeekBackward,
                 onSeekForward = onSeekForward,
@@ -508,6 +513,7 @@ private fun PlayerBottomBar(
     isMuted: Boolean,
     playbackSpeed: Float,
     mediaTitle: String?,
+    timeshiftUiState: PlayerTimeshiftUiState,
     playButtonFocusRequester: FocusRequester,
     quickActionsFocusRequester: FocusRequester,
     onRestartProgram: () -> Unit,
@@ -530,6 +536,7 @@ private fun PlayerBottomBar(
     isCastConnected: Boolean,
     onCast: () -> Unit,
     onStopCasting: () -> Unit,
+    onSeekToLiveEdge: () -> Unit,
     onTogglePlayPause: () -> Unit,
     onSeekBackward: () -> Unit,
     onSeekForward: () -> Unit,
@@ -592,6 +599,7 @@ private fun PlayerBottomBar(
                         currentRecordingStatus = currentRecordingStatus,
                         isMuted = isMuted,
                         mediaTitle = mediaTitle,
+                        timeshiftUiState = timeshiftUiState,
                         playButtonFocusRequester = playButtonFocusRequester,
                         quickActionsFocusRequester = quickActionsFocusRequester,
                         onRestartProgram = onRestartProgram,
@@ -611,6 +619,12 @@ private fun PlayerBottomBar(
                         isCastConnected = isCastConnected,
                         onCast = onCast,
                         onStopCasting = onStopCasting
+                        ,
+                        isPlaying = isPlaying,
+                        onTogglePlayPause = onTogglePlayPause,
+                        onSeekBackward = onSeekBackward,
+                        onSeekForward = onSeekForward,
+                        onSeekToLiveEdge = onSeekToLiveEdge
                     )
                 } else {
                     PlayerVodInfo(
@@ -665,6 +679,7 @@ private fun PlayerLiveInfo(
     currentRecordingStatus: RecordingStatus?,
     isMuted: Boolean,
     mediaTitle: String?,
+    timeshiftUiState: PlayerTimeshiftUiState,
     playButtonFocusRequester: FocusRequester,
     quickActionsFocusRequester: FocusRequester,
     onRestartProgram: () -> Unit,
@@ -683,9 +698,18 @@ private fun PlayerLiveInfo(
     onToggleMute: () -> Unit,
     isCastConnected: Boolean,
     onCast: () -> Unit,
-    onStopCasting: () -> Unit
+    onStopCasting: () -> Unit,
+    isPlaying: Boolean,
+    onTogglePlayPause: () -> Unit,
+    onSeekBackward: () -> Unit,
+    onSeekForward: () -> Unit,
+    onSeekToLiveEdge: () -> Unit
 ) {
+    val showTimeshiftControls = timeshiftUiState.available && !isCastConnected
     val primaryActions = buildList {
+        if (showTimeshiftControls) {
+            add(PlayerActionSpec(stringResource(R.string.player_jump_to_live), onSeekToLiveEdge))
+        }
         add(PlayerActionSpec(
             stringResource(if (isMuted) R.string.player_unmute else R.string.player_mute),
             onToggleMute
@@ -731,13 +755,32 @@ private fun PlayerLiveInfo(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                PlayerMetaPill(text = stringResource(R.string.player_live_now), accent = true)
+                PlayerMetaPill(
+                    text = if (showTimeshiftControls) {
+                        stringResource(R.string.player_live_rewind_badge)
+                    } else {
+                        stringResource(R.string.player_live_now)
+                    },
+                    accent = true
+                )
                 PlayerMetaPill(text = stringResource(R.string.player_live_channel, displayChannelNumber))
                 if (currentProgram?.hasArchive == true) {
                     PlayerMetaPill(text = stringResource(R.string.player_archive_badge))
                 }
                 if (isMuted) {
                     PlayerMetaPill(text = stringResource(R.string.player_muted_badge))
+                }
+                if (showTimeshiftControls) {
+                    PlayerMetaPill(
+                        text = if (timeshiftUiState.bufferedBehindLiveMs > 1_000L) {
+                            stringResource(
+                                R.string.player_live_offset,
+                                formatDuration(timeshiftUiState.bufferedBehindLiveMs)
+                            )
+                        } else {
+                            stringResource(R.string.player_live_ready)
+                        }
+                    )
                 }
             }
             Text(
@@ -759,6 +802,100 @@ private fun PlayerLiveInfo(
     }
 
     Spacer(modifier = Modifier.height(16.dp))
+
+    if (showTimeshiftControls) {
+        Surface(
+            shape = RoundedCornerShape(20.dp),
+            colors = SurfaceDefaults.colors(containerColor = Color.White.copy(alpha = 0.06f))
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(999.dp),
+                    colors = SurfaceDefaults.colors(containerColor = Color.Black.copy(alpha = 0.24f))
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        PlayerTransportButton(
+                            label = "\u23EA",
+                            contentDescription = stringResource(R.string.player_rewind),
+                            onClick = onSeekBackward,
+                            modifier = Modifier.focusProperties { down = quickActionsFocusRequester }
+                        )
+                        TvClickableSurface(
+                            onClick = onTogglePlayPause,
+                            shape = ClickableSurfaceDefaults.shape(RoundedCornerShape(50)),
+                            colors = ClickableSurfaceDefaults.colors(
+                                containerColor = Primary.copy(alpha = 0.84f),
+                                focusedContainerColor = Primary
+                            ),
+                            modifier = Modifier
+                                .size(62.dp)
+                                .focusRequester(playButtonFocusRequester)
+                                .focusProperties { down = quickActionsFocusRequester }
+                        ) {
+                            Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
+                                if (isPlaying) {
+                                    Text(text = "II", style = MaterialTheme.typography.headlineMedium, color = Color.White)
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Default.PlayArrow,
+                                        contentDescription = stringResource(R.string.player_play),
+                                        tint = Color.White,
+                                        modifier = Modifier.size(30.dp)
+                                    )
+                                }
+                            }
+                        }
+                        PlayerTransportButton(
+                            label = "\u23E9",
+                            contentDescription = stringResource(R.string.player_forward),
+                            onClick = onSeekForward,
+                            modifier = Modifier.focusProperties { down = quickActionsFocusRequester }
+                        )
+                    }
+                }
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        text = timeshiftUiState.statusMessage.ifBlank {
+                            if (timeshiftUiState.bufferDepthMs > 0L) {
+                                stringResource(R.string.player_live_timeshift_buffering)
+                            } else {
+                                stringResource(R.string.player_live_timeshift_ready)
+                            }
+                        },
+                        style = MaterialTheme.typography.labelLarge,
+                        color = Color.White
+                    )
+                    Text(
+                        text = if (timeshiftUiState.bufferedBehindLiveMs > 1_000L) {
+                            stringResource(R.string.player_live_offset, formatDuration(timeshiftUiState.bufferedBehindLiveMs))
+                        } else {
+                            stringResource(R.string.player_live_ready)
+                        },
+                        style = MaterialTheme.typography.labelMedium,
+                        color = Color.White.copy(alpha = 0.72f)
+                    )
+                }
+                if (timeshiftUiState.canSeekToLive) {
+                    PlayerQuickSettingsButton(
+                        text = stringResource(R.string.player_jump_to_live),
+                        onClick = onSeekToLiveEdge
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+    }
 
     val start = currentProgram?.startTime ?: 0L
     val end = currentProgram?.endTime ?: 0L

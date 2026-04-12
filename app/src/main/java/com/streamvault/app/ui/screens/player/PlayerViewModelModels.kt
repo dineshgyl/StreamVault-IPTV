@@ -6,6 +6,7 @@ import com.streamvault.domain.model.ChannelQualityOption
 import com.streamvault.domain.model.Season
 import com.streamvault.domain.model.Series
 import com.streamvault.domain.model.DecoderMode
+import com.streamvault.player.timeshift.LiveTimeshiftState
 import java.util.Locale
 
 data class ResumePromptState(
@@ -48,6 +49,17 @@ data class PlayerDiagnosticsUiState(
     val lastFailureReason: String? = null,
     val recentRecoveryActions: List<String> = emptyList(),
     val troubleshootingHints: List<String> = emptyList()
+)
+
+data class PlayerTimeshiftUiState(
+    val available: Boolean = false,
+    val enabledForSession: Boolean = false,
+    val backendLabel: String = "",
+    val bufferedBehindLiveMs: Long = 0L,
+    val bufferDepthMs: Long = 0L,
+    val canSeekToLive: Boolean = false,
+    val statusMessage: String = "",
+    val engineState: LiveTimeshiftState = LiveTimeshiftState()
 )
 
 enum class PlayerRecoveryType {

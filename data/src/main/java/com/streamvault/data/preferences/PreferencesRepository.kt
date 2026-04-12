@@ -94,6 +94,8 @@ class PreferencesRepository @Inject constructor(
         val PLAYER_DIAGNOSTICS_TIMEOUT_SECONDS = intPreferencesKey("player_diagnostics_timeout_seconds")
         val PLAYER_WIFI_MAX_VIDEO_HEIGHT = intPreferencesKey("player_wifi_max_video_height")
         val PLAYER_ETHERNET_MAX_VIDEO_HEIGHT = intPreferencesKey("player_ethernet_max_video_height")
+        val PLAYER_TIMESHIFT_ENABLED = booleanPreferencesKey("player_timeshift_enabled")
+        val PLAYER_TIMESHIFT_DEPTH_MINUTES = intPreferencesKey("player_timeshift_depth_minutes")
         val LAST_SPEED_TEST_MEGABITS = stringPreferencesKey("last_speed_test_megabits")
         val LAST_SPEED_TEST_TIMESTAMP = longPreferencesKey("last_speed_test_timestamp")
         val LAST_SPEED_TEST_TRANSPORT = stringPreferencesKey("last_speed_test_transport")
@@ -236,6 +238,19 @@ class PreferencesRepository @Inject constructor(
 
     val playerEthernetMaxVideoHeight: Flow<Int?> = context.dataStore.data.map { preferences ->
         preferences[PreferencesKeys.PLAYER_ETHERNET_MAX_VIDEO_HEIGHT]?.takeIf { it > 0 }
+    }
+
+    val playerTimeshiftEnabled: Flow<Boolean> = context.dataStore.data.map { preferences ->
+        preferences[PreferencesKeys.PLAYER_TIMESHIFT_ENABLED] ?: false
+    }
+
+    val playerTimeshiftDepthMinutes: Flow<Int> = context.dataStore.data.map { preferences ->
+        when (preferences[PreferencesKeys.PLAYER_TIMESHIFT_DEPTH_MINUTES] ?: 30) {
+            15, 30, 60 -> preferences[PreferencesKeys.PLAYER_TIMESHIFT_DEPTH_MINUTES] ?: 30
+            in Int.MIN_VALUE..22 -> 15
+            in 23..45 -> 30
+            else -> 60
+        }
     }
 
     val lastSpeedTestMegabits: Flow<Double?> = context.dataStore.data.map { preferences ->
@@ -584,6 +599,23 @@ class PreferencesRepository @Inject constructor(
                 preferences.remove(PreferencesKeys.PLAYER_ETHERNET_MAX_VIDEO_HEIGHT)
             } else {
                 preferences[PreferencesKeys.PLAYER_ETHERNET_MAX_VIDEO_HEIGHT] = normalized
+            }
+        }
+    }
+
+    suspend fun setPlayerTimeshiftEnabled(enabled: Boolean) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferencesKeys.PLAYER_TIMESHIFT_ENABLED] = enabled
+        }
+    }
+
+    suspend fun setPlayerTimeshiftDepthMinutes(minutes: Int) {
+        context.dataStore.edit { preferences ->
+            preferences[PreferencesKeys.PLAYER_TIMESHIFT_DEPTH_MINUTES] = when (minutes) {
+                15, 30, 60 -> minutes
+                in Int.MIN_VALUE..22 -> 15
+                in 23..45 -> 30
+                else -> 60
             }
         }
     }

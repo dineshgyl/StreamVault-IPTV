@@ -420,6 +420,18 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    fun setPlayerTimeshiftEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            preferencesRepository.setPlayerTimeshiftEnabled(enabled)
+        }
+    }
+
+    fun setPlayerTimeshiftDepthMinutes(minutes: Int) {
+        viewModelScope.launch {
+            preferencesRepository.setPlayerTimeshiftDepthMinutes(minutes)
+        }
+    }
+
     fun setPlayerDecoderMode(mode: DecoderMode) {
         viewModelScope.launch {
             preferencesRepository.setPlayerDecoderMode(mode)

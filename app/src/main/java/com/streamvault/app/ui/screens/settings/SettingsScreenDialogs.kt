@@ -58,6 +58,8 @@ internal fun SettingsScreenDialogs(
     onShowPlaybackSpeedDialogChange: (Boolean) -> Unit,
     showDecoderModeDialog: Boolean,
     onShowDecoderModeDialogChange: (Boolean) -> Unit,
+    showTimeshiftDepthDialog: Boolean,
+    onShowTimeshiftDepthDialogChange: (Boolean) -> Unit,
     showControlsTimeoutDialog: Boolean,
     onShowControlsTimeoutDialogChange: (Boolean) -> Unit,
     showLiveOverlayTimeoutDialog: Boolean,
@@ -278,6 +280,32 @@ internal fun SettingsScreenDialogs(
         ) { seconds ->
             viewModel.setPlayerDiagnosticsTimeoutSeconds(seconds)
             onShowDiagnosticsTimeoutDialogChange(false)
+        }
+    }
+
+    if (showTimeshiftDepthDialog) {
+        val depthOptions = remember(context) {
+            listOf(
+                15 to context.getString(R.string.settings_live_timeshift_depth_15),
+                30 to context.getString(R.string.settings_live_timeshift_depth_30),
+                60 to context.getString(R.string.settings_live_timeshift_depth_60)
+            )
+        }
+        PremiumSelectionDialog(
+            title = stringResource(R.string.settings_select_live_timeshift_depth),
+            onDismiss = { onShowTimeshiftDepthDialogChange(false) }
+        ) {
+            depthOptions.forEachIndexed { index, option ->
+                LevelOption(
+                    level = index,
+                    text = option.second,
+                    currentLevel = if (uiState.playerTimeshiftDepthMinutes == option.first) index else -1,
+                    onSelect = {
+                        viewModel.setPlayerTimeshiftDepthMinutes(option.first)
+                        onShowTimeshiftDepthDialogChange(false)
+                    }
+                )
+            }
         }
     }
 

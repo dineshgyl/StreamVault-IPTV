@@ -43,6 +43,11 @@ import com.streamvault.player.playback.PreloadCoordinator
 import com.streamvault.player.playback.ResolvedStreamType
 import com.streamvault.player.playback.StreamTypeResolver
 import com.streamvault.player.stats.PlayerStatsCollector
+import com.streamvault.player.timeshift.DefaultLiveTimeshiftManager
+import com.streamvault.player.timeshift.LiveTimeshiftBackend
+import com.streamvault.player.timeshift.LiveTimeshiftState
+import com.streamvault.player.timeshift.LiveTimeshiftStatus
+import com.streamvault.player.timeshift.TimeshiftConfig
 import com.streamvault.player.tracks.PlayerTrackController
 import com.streamvault.player.ui.PlayerViewBinder
 import com.streamvault.player.ui.SubtitleStyleController
@@ -53,6 +58,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -70,6 +76,7 @@ class Media3PlayerEngine @Inject constructor(
 
     companion object {
         private const val TAG = "Media3PlayerEngine"
+        private const val AUDIO_RENDERER_RECOVERY_COOLDOWN_MS = 15_000L
     }
 
     var constrainResolutionForMultiView: Boolean = false
@@ -134,6 +141,10 @@ class Media3PlayerEngine @Inject constructor(
     private val _playbackSpeed = MutableStateFlow(1f)
     override val playbackSpeed: StateFlow<Float> = _playbackSpeed.asStateFlow()
 
+    private val liveTimeshiftManager = DefaultLiveTimeshiftManager(context, okHttpClient)
+    private val _timeshiftState = MutableStateFlow(LiveTimeshiftState())
+    override val timeshiftState: StateFlow<LiveTimeshiftState> = _timeshiftState.asStateFlow()
+
     private val _playerStats = MutableStateFlow(PlayerStats())
     override val playerStats: StateFlow<PlayerStats> = _playerStats.asStateFlow()
 
@@ -170,6 +181,21 @@ class Media3PlayerEngine @Inject constructor(
     private val preloadCoordinator = PreloadCoordinator()
     private val compatibilityProfile: PlaybackCompatibilityProfile = DefaultPlaybackCompatibilityProfile
     private val decoderPreferencePolicy = DefaultDecoderPreferencePolicy()
+    private var activeLiveTimeshiftStreamInfo: StreamInfo? = null
+    private var activeLiveTimeshiftChannelKey: String? = null
+    private var isPlayingTimeshiftSnapshot: Boolean = false
+    private var pendingTimeshiftSeekMs: Long? = null
+    private var pendingTimeshiftSeekToEnd: Boolean = false
+    private var pendingTimeshiftAutoPlay: Boolean = false
+    private var lastAudioRendererRecoveryAtMs: Long = 0L
+
+    init {
+        scope.launch {
+            liveTimeshiftManager.state.collectLatest {
+                syncTimeshiftState()
+            }
+        }
+    }
 
     override fun prepare(streamInfo: StreamInfo) {
         prepareInternal(streamInfo = streamInfo, preserveRetryState = false, seekPositionMs = null, autoPlay = true)
@@ -178,6 +204,7 @@ class Media3PlayerEngine @Inject constructor(
     override fun play() {
         if (audioFocusController.requestAudioFocusIfNeeded()) {
             exoPlayer?.playWhenReady = true
+            syncTimeshiftState()
         }
     }
 
@@ -195,10 +222,26 @@ class Media3PlayerEngine @Inject constructor(
     }
 
     override fun seekTo(positionMs: Long) {
+        if (activeLiveTimeshiftStreamInfo != null && !isPlayingTimeshiftSnapshot && _timeshiftState.value.supported) {
+            switchToTimeshiftSnapshot(positionMs = positionMs.coerceAtLeast(0L), autoPlay = true)
+            return
+        }
         exoPlayer?.seekTo(positionMs)
     }
 
     override fun seekForward(ms: Long) {
+        if (isPlayingTimeshiftSnapshot) {
+            exoPlayer?.let { player ->
+                val duration = player.duration
+                val newPosition = if (duration != C.TIME_UNSET) {
+                    (player.currentPosition + ms).coerceAtMost(duration)
+                } else {
+                    player.currentPosition + ms
+                }
+                player.seekTo(newPosition)
+            }
+            return
+        }
         exoPlayer?.let { player ->
             val duration = player.duration
             val newPosition = if (duration != C.TIME_UNSET) {
@@ -211,6 +254,12 @@ class Media3PlayerEngine @Inject constructor(
     }
 
     override fun seekBackward(ms: Long) {
+        if (activeLiveTimeshiftStreamInfo != null && !isPlayingTimeshiftSnapshot && _timeshiftState.value.supported) {
+            val liveEdge = _timeshiftState.value.liveEdgePositionMs
+            val target = (liveEdge - ms).coerceAtLeast(0L)
+            switchToTimeshiftSnapshot(positionMs = target, autoPlay = true)
+            return
+        }
         exoPlayer?.let { player ->
             player.seekTo((player.currentPosition - ms).coerceAtLeast(0L))
         }
@@ -242,6 +291,61 @@ class Media3PlayerEngine @Inject constructor(
         val clamped = speed.coerceIn(0.5f, 2f)
         _playbackSpeed.value = clamped
         exoPlayer?.playbackParameters = PlaybackParameters(clamped)
+    }
+
+    override fun startLiveTimeshift(streamInfo: StreamInfo, channelKey: String, config: TimeshiftConfig) {
+        activeLiveTimeshiftStreamInfo = streamInfo
+        activeLiveTimeshiftChannelKey = channelKey
+        scope.launch {
+            liveTimeshiftManager.startSession(streamInfo, channelKey, config)
+            syncTimeshiftState()
+        }
+    }
+
+    override fun stopLiveTimeshift() {
+        val wasSnapshot = isPlayingTimeshiftSnapshot
+        val liveInfo = activeLiveTimeshiftStreamInfo
+        activeLiveTimeshiftStreamInfo = null
+        activeLiveTimeshiftChannelKey = null
+        isPlayingTimeshiftSnapshot = false
+        pendingTimeshiftSeekMs = null
+        pendingTimeshiftSeekToEnd = false
+        pendingTimeshiftAutoPlay = false
+        scope.launch {
+            liveTimeshiftManager.stopSession()
+            if (wasSnapshot && liveInfo != null) {
+                prepareInternal(liveInfo, preserveRetryState = false, seekPositionMs = null, autoPlay = true)
+            }
+            syncTimeshiftState()
+        }
+    }
+
+    override fun seekToLiveEdge() {
+        val liveInfo = activeLiveTimeshiftStreamInfo ?: return
+        isPlayingTimeshiftSnapshot = false
+        pendingTimeshiftSeekMs = null
+        pendingTimeshiftSeekToEnd = false
+        pendingTimeshiftAutoPlay = false
+        prepareInternal(liveInfo, preserveRetryState = false, seekPositionMs = null, autoPlay = true)
+        syncTimeshiftState()
+    }
+
+    override fun pauseTimeshift() {
+        if (activeLiveTimeshiftStreamInfo != null && !isPlayingTimeshiftSnapshot && _timeshiftState.value.supported) {
+            switchToTimeshiftSnapshot(positionMs = null, autoPlay = false, seekToEnd = true)
+            return
+        }
+        exoPlayer?.playWhenReady = false
+        audioFocusController.onPauseOrStop()
+        syncTimeshiftState()
+    }
+
+    override fun resumeTimeshift() {
+        if (isPlayingTimeshiftSnapshot) {
+            play()
+            return
+        }
+        seekToLiveEdge()
     }
 
     override fun setPreferredAudioLanguage(languageTag: String?) {
@@ -319,6 +423,9 @@ class Media3PlayerEngine @Inject constructor(
     }
 
     override fun release() {
+        scope.launch {
+            liveTimeshiftManager.stopSession()
+        }
         retryJob?.cancel()
         retryJob = null
         preloadCoordinator.release()
@@ -341,6 +448,10 @@ class Media3PlayerEngine @Inject constructor(
         _mediaTitle.value = null
         trackController.resetSelections()
         statsCollector.reset()
+        activeLiveTimeshiftStreamInfo = null
+        activeLiveTimeshiftChannelKey = null
+        isPlayingTimeshiftSnapshot = false
+        _timeshiftState.value = LiveTimeshiftState()
     }
 
     private fun prepareInternal(
@@ -536,6 +647,32 @@ class Media3PlayerEngine @Inject constructor(
                 statsCollector.onAudioFormatChanged(format)
             }
 
+            override fun onAudioUnderrun(
+                eventTime: AnalyticsListener.EventTime,
+                bufferSize: Int,
+                bufferSizeMs: Long,
+                elapsedSinceLastFeedMs: Long
+            ) {
+                Log.w(
+                    TAG,
+                    "audio-underrun bufferSize=$bufferSize bufferSizeMs=$bufferSizeMs elapsedSinceLastFeedMs=$elapsedSinceLastFeedMs"
+                )
+            }
+
+            override fun onAudioSinkError(
+                eventTime: AnalyticsListener.EventTime,
+                audioSinkError: Exception
+            ) {
+                handleAudioRendererIssue(audioSinkError, "audio-sink")
+            }
+
+            override fun onAudioCodecError(
+                eventTime: AnalyticsListener.EventTime,
+                audioCodecError: Exception
+            ) {
+                handleAudioRendererIssue(audioCodecError, "audio-codec")
+            }
+
             override fun onDroppedVideoFrames(
                 eventTime: AnalyticsListener.EventTime,
                 droppedFrames: Int,
@@ -579,10 +716,22 @@ class Media3PlayerEngine @Inject constructor(
                 }
                 if (_playbackState.value == PlaybackState.READY) {
                     _retryStatus.value = null
+                    if (isPlayingTimeshiftSnapshot && pendingTimeshiftSeekToEnd) {
+                        pendingTimeshiftSeekToEnd = false
+                        playerOrNull()?.duration?.takeIf { it > 0L && it != C.TIME_UNSET }?.let { duration ->
+                            playerOrNull()?.seekTo(duration)
+                        }
+                    } else if (isPlayingTimeshiftSnapshot) {
+                        pendingTimeshiftSeekMs?.let { target ->
+                            pendingTimeshiftSeekMs = null
+                            playerOrNull()?.seekTo(target)
+                        }
+                    }
                 }
                 if (_playbackState.value == PlaybackState.READY && _isPlaying.value) {
                     markPlaybackStarted("ready-while-playing")
                 }
+                syncTimeshiftState()
             }
 
             override fun onIsPlayingChanged(isPlaying: Boolean) {
@@ -596,6 +745,7 @@ class Media3PlayerEngine @Inject constructor(
                 } else {
                     statsCollector.stop()
                 }
+                syncTimeshiftState()
             }
 
             override fun onPlayerError(error: PlaybackException) {
@@ -608,6 +758,7 @@ class Media3PlayerEngine @Inject constructor(
                 reason: Int
             ) {
                 _currentPosition.value = newPosition.positionMs
+                syncTimeshiftState()
             }
 
             override fun onMediaMetadataChanged(metadata: androidx.media3.common.MediaMetadata) {
@@ -620,12 +771,113 @@ class Media3PlayerEngine @Inject constructor(
         }
     }
 
+    private fun playerOrNull(): ExoPlayer? = exoPlayer
+
+    private fun switchToTimeshiftSnapshot(
+        positionMs: Long?,
+        autoPlay: Boolean,
+        seekToEnd: Boolean = false
+    ) {
+        val liveInfo = activeLiveTimeshiftStreamInfo ?: return
+        scope.launch {
+            val snapshot = liveTimeshiftManager.createSnapshot() ?: run {
+                syncTimeshiftState(messageOverride = "Local live rewind is still buffering.")
+                return@launch
+            }
+            isPlayingTimeshiftSnapshot = true
+            pendingTimeshiftSeekMs = positionMs
+            pendingTimeshiftSeekToEnd = seekToEnd
+            pendingTimeshiftAutoPlay = autoPlay
+            val snapshotInfo = liveInfo.copy(url = snapshot.url, streamType = inferSnapshotStreamType(snapshot.url))
+            prepareInternal(snapshotInfo, preserveRetryState = false, seekPositionMs = null, autoPlay = autoPlay)
+            syncTimeshiftState()
+        }
+    }
+
+    private fun inferSnapshotStreamType(url: String) = when {
+        url.lowercase().endsWith(".m3u8") -> com.streamvault.domain.model.StreamType.HLS
+        else -> com.streamvault.domain.model.StreamType.PROGRESSIVE
+    }
+
+    private fun syncTimeshiftState(messageOverride: String? = null) {
+        val managerState = liveTimeshiftManager.state.value
+        if (!managerState.enabled) {
+            _timeshiftState.value = managerState
+            return
+        }
+        val player = exoPlayer
+        val duration = player?.duration?.takeIf { it != C.TIME_UNSET } ?: managerState.liveEdgePositionMs
+        val currentPosition = player?.currentPosition ?: duration
+        val offsetFromLive = when {
+            isPlayingTimeshiftSnapshot -> (managerState.liveEdgePositionMs - currentPosition).coerceAtLeast(0L)
+            else -> 0L
+        }
+        val status = when {
+            managerState.status == LiveTimeshiftStatus.FAILED -> LiveTimeshiftStatus.FAILED
+            !managerState.supported -> LiveTimeshiftStatus.UNSUPPORTED
+            isPlayingTimeshiftSnapshot && _playbackState.value == PlaybackState.BUFFERING -> LiveTimeshiftStatus.BUFFERING
+            isPlayingTimeshiftSnapshot && _isPlaying.value -> LiveTimeshiftStatus.PLAYING_BEHIND_LIVE
+            isPlayingTimeshiftSnapshot -> LiveTimeshiftStatus.PAUSED_BEHIND_LIVE
+            managerState.status == LiveTimeshiftStatus.PREPARING -> LiveTimeshiftStatus.PREPARING
+            else -> LiveTimeshiftStatus.LIVE
+        }
+        _timeshiftState.value = managerState.copy(
+            backend = if (managerState.backend == LiveTimeshiftBackend.NONE) managerState.backend else managerState.backend,
+            status = status,
+            liveEdgePositionMs = managerState.liveEdgePositionMs,
+            currentOffsetFromLiveMs = offsetFromLive,
+            message = messageOverride ?: managerState.message
+        )
+    }
+
     private fun markPlaybackStarted(reason: String) {
         if (playbackStarted) return
         playbackStarted = true
         Log.i(
             TAG,
             "$reason streamType=$currentResolvedStreamType timeoutProfile=$currentTimeoutProfile target=${PlaybackLogSanitizer.sanitizeUrl(lastStreamInfo?.url)}"
+        )
+    }
+
+    private fun handleAudioRendererIssue(error: Exception, source: String) {
+        val streamInfo = lastStreamInfo
+        if (streamInfo == null) {
+            _error.tryEmit(PlayerError.DecoderError(error.message ?: "Audio playback failed."))
+            return
+        }
+
+        val now = System.currentTimeMillis()
+        if (now - lastAudioRendererRecoveryAtMs < AUDIO_RENDERER_RECOVERY_COOLDOWN_MS) {
+            Log.e(
+                TAG,
+                "audio-renderer-failed source=$source target=${PlaybackLogSanitizer.sanitizeUrl(streamInfo.url)} message=${PlaybackLogSanitizer.sanitizeMessage(error.message)}"
+            )
+            _error.tryEmit(
+                PlayerError.DecoderError(
+                    error.message ?: "Audio playback failed for this stream."
+                )
+            )
+            return
+        }
+
+        lastAudioRendererRecoveryAtMs = now
+        val wasPlaying = exoPlayer?.playWhenReady ?: true
+        val seekPosition = exoPlayer?.currentPosition
+            ?.takeIf { currentResolvedStreamType == ResolvedStreamType.PROGRESSIVE && it > 0L }
+
+        Log.w(
+            TAG,
+            "audio-renderer-recover source=$source target=${PlaybackLogSanitizer.sanitizeUrl(streamInfo.url)} message=${PlaybackLogSanitizer.sanitizeMessage(error.message)}"
+        )
+
+        retryJob?.cancel()
+        retryJob = null
+        _retryStatus.value = null
+        prepareInternal(
+            streamInfo = streamInfo,
+            preserveRetryState = false,
+            seekPositionMs = seekPosition,
+            autoPlay = wasPlaying
         )
     }
 

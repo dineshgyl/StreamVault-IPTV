@@ -191,12 +191,14 @@ fun PlayerScreen(
     val castConnectionState by viewModel.castConnectionState.collectAsStateWithLifecycle()
     val seekPreview by viewModel.seekPreview.collectAsStateWithLifecycle()
     val preventStandbyDuringPlayback by viewModel.preventStandbyDuringPlayback.collectAsStateWithLifecycle()
+    val timeshiftUiState by viewModel.timeshiftUiState.collectAsStateWithLifecycle()
 
     var showTrackSelection by remember { mutableStateOf<TrackType?>(null) }
     var showSpeedSelection by remember { mutableStateOf(false) }
     var showProgramHistory by remember { mutableStateOf(false) }
     var showSplitDialog by remember { mutableStateOf(false) }
     var showEpisodePicker by remember { mutableStateOf(false) }
+    var channelInfoSubPanelOpen by remember { mutableStateOf(false) }
     
     val focusRequester = remember { FocusRequester() }
     val channelListFocusRequester = remember { FocusRequester() }
@@ -473,6 +475,9 @@ fun PlayerScreen(
                 if (showTrackSelection != null || showSpeedSelection || showProgramHistory || showSplitDialog || showEpisodePicker) {
                     return@onPreviewKeyEvent false
                 }
+                if (showChannelInfoOverlay && channelInfoSubPanelOpen) {
+                    return@onPreviewKeyEvent false
+                }
 
                 when (event.nativeKeyEvent.keyCode) {
                     KeyEvent.KEYCODE_DPAD_UP,
@@ -588,6 +593,7 @@ fun PlayerScreen(
                             if (showChannelListOverlay || showCategoryListOverlay || showEpgOverlay || showChannelInfoOverlay || showDiagnostics) {
                                 viewModel.onLiveOverlayInteraction()
                             }
+                            if (showChannelInfoOverlay && channelInfoSubPanelOpen) return@onKeyEvent false
                             if (showChannelListOverlay || showCategoryListOverlay || showEpgOverlay || showChannelInfoOverlay) return@onKeyEvent false
                             if (showControls && contentType != "LIVE") return@onKeyEvent false
 
@@ -604,6 +610,7 @@ fun PlayerScreen(
                             if (showChannelListOverlay || showCategoryListOverlay || showEpgOverlay || showChannelInfoOverlay || showDiagnostics) {
                                 viewModel.onLiveOverlayInteraction()
                             }
+                            if (showChannelInfoOverlay && channelInfoSubPanelOpen) return@onKeyEvent false
                             if (showChannelListOverlay || showCategoryListOverlay || showEpgOverlay) return@onKeyEvent false
                             if (showControls && contentType != "LIVE") return@onKeyEvent false
 
@@ -629,6 +636,9 @@ fun PlayerScreen(
                             true
                         }
                         KeyEvent.KEYCODE_CHANNEL_UP, KeyEvent.KEYCODE_DPAD_UP_RIGHT -> {
+                            if (showChannelInfoOverlay && channelInfoSubPanelOpen) {
+                                true
+                            } else
                             if (contentType == "LIVE") {
                                 viewModel.playNext()
                                 true
@@ -637,6 +647,9 @@ fun PlayerScreen(
                             }
                         }
                         KeyEvent.KEYCODE_CHANNEL_DOWN, KeyEvent.KEYCODE_DPAD_DOWN_LEFT -> {
+                            if (showChannelInfoOverlay && channelInfoSubPanelOpen) {
+                                true
+                            } else
                             if (contentType == "LIVE") {
                                 viewModel.playPrevious()
                                 true
@@ -645,6 +658,9 @@ fun PlayerScreen(
                             }
                         }
                         KeyEvent.KEYCODE_MEDIA_PREVIOUS -> {
+                            if (showChannelInfoOverlay && channelInfoSubPanelOpen) {
+                                true
+                            } else
                             if (contentType == "LIVE") {
                                 viewModel.zapToLastChannel()
                                 true
@@ -831,6 +847,7 @@ fun PlayerScreen(
             isMuted = isMuted,
             playbackSpeed = playbackSpeed,
             mediaTitle = mediaTitle,
+            timeshiftUiState = timeshiftUiState,
             playButtonFocusRequester = playButtonFocusRequester,
             quickActionsFocusRequester = quickActionsFocusRequester,
             modifier = Modifier.fillMaxSize(),
@@ -858,6 +875,7 @@ fun PlayerScreen(
             isCastConnected = castConnectionState == CastConnectionState.CONNECTED,
             onCast = { viewModel.castCurrentMedia { mainActivity?.openCastRouteChooser() } },
             onStopCasting = viewModel::stopCasting,
+            onSeekToLiveEdge = viewModel::seekToLiveEdge,
             onSeekToPosition = viewModel::seekTo,
             onSetScrubbingMode = viewModel::setScrubbingMode,
             seekPreview = seekPreview,
@@ -1048,10 +1066,17 @@ fun PlayerScreen(
                     currentRecordingStatus = currentChannelRecording?.status,
                     onStartRecording = viewModel::startManualRecording,
                     onStopRecording = viewModel::stopCurrentRecording,
+                    onScheduleRecording = viewModel::scheduleRecording,
+                    onScheduleDailyRecording = viewModel::scheduleDailyRecording,
+                    onScheduleWeeklyRecording = viewModel::scheduleWeeklyRecording,
                     onRestartProgram = { viewModel.restartCurrentProgram() },
+                    onOpenArchive = { showProgramHistory = true },
                     onToggleAspectRatio = { viewModel.toggleAspectRatio() },
                     onToggleDiagnostics = { viewModel.toggleDiagnostics() },
                     onTogglePlayPause = { if (isPlaying) viewModel.pause() else viewModel.play() },
+                    onSeekBackward = viewModel::seekBackward,
+                    onSeekForward = viewModel::seekForward,
+                    onSeekToLiveEdge = viewModel::seekToLiveEdge,
                     isPlaying = isPlaying,
                     currentAspectRatio = aspectRatio.modeName,
                     isDiagnosticsEnabled = showDiagnostics,
@@ -1067,7 +1092,9 @@ fun PlayerScreen(
                     onEnterPictureInPicture = enterPictureInPicture,
                     isCastConnected = castConnectionState == CastConnectionState.CONNECTED,
                     onCast = { viewModel.castCurrentMedia { mainActivity?.openCastRouteChooser() } },
-                    onStopCasting = viewModel::stopCasting
+                    onStopCasting = viewModel::stopCasting,
+                    timeshiftUiState = timeshiftUiState,
+                    onTransientPanelVisibilityChanged = { channelInfoSubPanelOpen = it }
                 )
             }
         }
@@ -1112,6 +1139,7 @@ private fun PlayerControlsOverlayHost(
     isMuted: Boolean,
     playbackSpeed: Float,
     mediaTitle: String?,
+    timeshiftUiState: PlayerTimeshiftUiState,
     playButtonFocusRequester: FocusRequester,
     quickActionsFocusRequester: FocusRequester,
     modifier: Modifier = Modifier,
@@ -1139,6 +1167,7 @@ private fun PlayerControlsOverlayHost(
     isCastConnected: Boolean,
     onCast: () -> Unit,
     onStopCasting: () -> Unit,
+    onSeekToLiveEdge: () -> Unit,
     onSeekToPosition: (Long) -> Unit,
     onSetScrubbingMode: (Boolean) -> Unit,
     seekPreview: SeekPreviewState,
@@ -1166,6 +1195,7 @@ private fun PlayerControlsOverlayHost(
         isMuted = isMuted,
         playbackSpeed = playbackSpeed,
         mediaTitle = mediaTitle,
+        timeshiftUiState = timeshiftUiState,
         playButtonFocusRequester = playButtonFocusRequester,
         quickActionsFocusRequester = quickActionsFocusRequester,
         modifier = modifier,
@@ -1193,6 +1223,7 @@ private fun PlayerControlsOverlayHost(
         isCastConnected = isCastConnected,
         onCast = onCast,
         onStopCasting = onStopCasting,
+        onSeekToLiveEdge = onSeekToLiveEdge,
         onSeekToPosition = onSeekToPosition,
         onSetScrubbingMode = onSetScrubbingMode,
         seekPreview = seekPreview,
